@@ -20,11 +20,11 @@ Thumbs.db
 
 # Outputs
 outputs/
+generated_images/
 *.png
 *.jpg
 
-# Models (large files)
-models/
+# Downloaded ML Models (large files)
 *.bin
 *.safetensors
 
