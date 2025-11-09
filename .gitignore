@@ -1,0 +1,33 @@
+# Python
+__pycache__/
+*.py[cod]
+*.so
+.Python
+venv/
+env/
+ENV/
+
+# Environment variables (keeps secrets safe!)
+.env
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Outputs
+outputs/
+*.png
+*.jpg
+
+# Models (large files)
+models/
+*.bin
+*.safetensors
+
+# Logs
+logs/
+*.log
