@@ -4,8 +4,12 @@ crewai-tools>=0.1.0
 langchain>=0.1.0
 langchain-community>=0.0.20
 
-# Groq for super fast LLM
-langchain-groq>=0.0.1
+# LLM Providers
+langchain-groq>=0.0.1  # Groq for fast Llama models
+litellm>=1.0.0  # OpenRouter support for Qwen3-14B
+
+# Web Search for Research Agent (optional but recommended)
+google-search-results>=2.4.2  # Serper API wrapper
 
 # Hugging Face for images
 huggingface-hub>=0.20.0
