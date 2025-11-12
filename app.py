@@ -1,7 +1,4 @@
-"""
-Creative Media Co-Pilot - Gradio UI
-Main application interface for campaign generation with AI validation
-"""
+"""Creative Media Co-Pilot - Gradio UI"""
 
 import gradio as gr
 from dotenv import load_dotenv
@@ -13,10 +10,8 @@ from src.models.campaign_brief import (
     BRAND_PRESETS
 )
 
-# Load environment variables
 load_dotenv()
 
-# Initialize the crew
 crew = CreativeMediaCrew()
 
 
@@ -29,14 +24,9 @@ def generate_campaign(
     custom_brand_values: str = "",
     custom_tone: str = ""
 ):
-    """
-    Generate a complete campaign with AI validation.
-    
-    Returns: (copy, image_path, validation_report, iteration_history)
-    """
+    """Generate a complete campaign with AI validation."""
     
     try:
-        # Create brand profile
         if brand_preset and brand_preset in BRAND_PRESETS:
             brand = BRAND_PRESETS[brand_preset]
         else:
@@ -47,13 +37,11 @@ def generate_campaign(
                 voice_examples=[]
             )
         
-        # Get platform constraints
         platform_constraints = PLATFORM_PRESETS.get(
             platform.lower(), 
             PLATFORM_PRESETS["instagram"]
         )
         
-        # Create campaign brief
         brief = CampaignBrief(
             product_name=product_name,
             campaign_goal=campaign_goal,
@@ -63,10 +51,8 @@ def generate_campaign(
             platform_constraints=platform_constraints
         )
         
-        # Generate campaign
         result = crew.create_campaign(brief)
         
-        # Format outputs
         copy_output = f"""
 # 📝 Generated Campaign Copy
 
@@ -88,7 +74,6 @@ def generate_campaign(
         
         image_path = result.get('image_path', None)
         
-        # Validation report
         validation_output = f"""
 # 🛡️ AI Validation Report
 
@@ -111,7 +96,6 @@ def generate_campaign(
 ### ✅ Final Status: {result.get('status', 'Processing...')}
 """
         
-        # Iteration history
         iterations = result.get('iterations', [])
         iteration_output = "# 📈 Iteration History\n\n"
         

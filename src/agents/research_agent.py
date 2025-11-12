@@ -1,17 +1,8 @@
 """
 Research Agent - Market Intelligence & Strategic Analysis
 
-This agent conducts market research, competitor analysis, and provides
-strategic insights to inform campaign creation. It runs FIRST in the workflow,
-gathering context before content generation begins.
-
-Model: Qwen3-14B via OpenRouter (FREE tier)
-Why this approach:
-- Qwen3-14B: Specifically optimized for agentic tasks and function calling
-- OpenRouter: Provides FREE unlimited access via :free tier
-- Superior to Llama for research and analytical reasoning
-- Perfect for hackathon (100% free, no usage limits)
-- Better web search integration and tool use
+Conducts market research, competitor analysis, and provides strategic insights
+to inform campaign creation. Runs first in the workflow.
 """
 
 from crewai import Agent
@@ -27,41 +18,23 @@ def create_research_agent(
     """
     Create a Research Agent for market intelligence gathering.
     
-    This agent:
-    1. Conducts web searches for market trends
-    2. Analyzes competitor content strategies
-    3. Identifies target audience insights
-    4. Provides strategic framework recommendations
-    5. Gathers real-time data to inform content creation
-    
     Args:
-        api_key: OpenRouter API key for Qwen3-14B (free tier)
-        serper_api_key: Serper API key for web search (optional but recommended)
+        api_key: OpenRouter API key for Qwen3-14B
+        serper_api_key: Serper API key for web search
         
     Returns:
         Configured CrewAI Agent for research tasks
-        
-    Note:
-        - Uses Qwen3-14B via OpenRouter (FREE unlimited access)
-        - Qwen is optimized for agentic reasoning and function calling
-        - Superior to Llama for research and analytical tasks
-        - OpenAI-compatible API format
-        - Web search is optional but enhances capabilities
-        - Outputs structured research reports
     """
     
-    # Get API keys from environment if not provided
-    # Note: Groq API key is read automatically by CrewAI from GROQ_API_KEY env var
     serper_key = serper_api_key or os.getenv("SERPER_API_KEY")
     
-    # Initialize web search tool if API key available
     tools = []
     if serper_key:
         search_tool = SerperDevTool(api_key=serper_key)
         tools.append(search_tool)
         tool_note = "with web search capabilities"
     else:
-        tool_note = "using LLM knowledge (web search disabled - add SERPER_API_KEY for live data)"
+        tool_note = "using LLM knowledge (add SERPER_API_KEY for live data)"
     
     return Agent(
         role="Market Research Analyst",
@@ -82,20 +55,9 @@ def create_research_agent(
         
         verbose=True,
         allow_delegation=False,
-        
-        # Use Qwen3-14B via OpenRouter (FREE tier)
-        # This model is specifically optimized for:
-        # - Function calling and tool use (perfect for web search)
-        # - Agentic reasoning and research tasks
-        # - Structured output generation
-        # - Better performance than Llama models for research
-        # OpenRouter provides FREE unlimited access via :free tier
         llm="openrouter/qwen/qwen3-14b:free",
-        
         tools=tools,
-        
-        # Research agent focuses on comprehensive, analytical outputs
-        max_iter=15,  # Allow more iterations for thorough research
+        max_iter=15,
         memory=True,
     )
 
@@ -104,13 +66,6 @@ def format_research_output(research_result: str) -> dict:
     """
     Parse research agent output into structured format.
     
-    Expected output structure from research agent:
-    - Market Trends: Current trends in the industry
-    - Target Audience Insights: Demographics, psychographics, pain points
-    - Competitor Analysis: What competitors are doing
-    - Strategic Recommendations: Suggested approaches
-    - Key Messages: Core messages to emphasize
-    
     Args:
         research_result: Raw output from research agent
         
@@ -118,7 +73,6 @@ def format_research_output(research_result: str) -> dict:
         Structured dictionary with research findings
     """
     
-    # Initialize structure
     parsed = {
         "market_trends": "",
         "audience_insights": "",
@@ -146,22 +100,18 @@ def format_research_output(research_result: str) -> dict:
     for line in lines:
         line_lower = line.lower().strip()
         
-        # Check if this line is a section header
         for trigger, key in sections.items():
             if trigger in line_lower and ':' in line_lower:
                 current_section = key
-                # Extract content after colon if present
                 if ':' in line:
                     content = line.split(':', 1)[1].strip()
                     if content:
                         parsed[current_section] += content + "\n"
                 break
         else:
-            # Add line to current section
             if current_section and line.strip():
                 parsed[current_section] += line.strip() + "\n"
     
-    # Clean up sections
     for key in parsed:
         if key != "raw_research":
             parsed[key] = parsed[key].strip()
@@ -169,18 +119,11 @@ def format_research_output(research_result: str) -> dict:
     return parsed
 
 
-# Example usage and testing
 if __name__ == "__main__":
-    """
-    Test the research agent with a sample query.
-    """
-    
     from crewai import Task, Crew
     
-    # Create research agent
     researcher = create_research_agent()
     
-    # Define a research task
     research_task = Task(
         description=(
             "Research the current state of sustainable fashion marketing. "
@@ -200,7 +143,6 @@ if __name__ == "__main__":
         agent=researcher
     )
     
-    # Execute research
     print("🔍 Starting Market Research...\n")
     
     crew = Crew(
@@ -216,7 +158,6 @@ if __name__ == "__main__":
     print("="*50)
     print(result)
     
-    # Parse output
     parsed = format_research_output(str(result))
     
     print("\n" + "="*50)
