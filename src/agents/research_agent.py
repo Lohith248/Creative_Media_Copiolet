@@ -55,7 +55,7 @@ def create_research_agent(
         
         verbose=True,
         allow_delegation=False,
-        llm="openrouter/qwen/qwen3-14b:free",
+        llm="openrouter/qwen/qwen-2.5-72b-instruct:free",
         tools=tools,
         max_iter=15,
         memory=True,

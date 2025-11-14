@@ -28,6 +28,9 @@ pyyaml>=6.0
 # User Interface
 gradio>=4.10.0
 
+# Database - Supabase for cloud storage
+supabase>=2.0.0
+
 # Utilities
 pillow>=10.1.0
 numpy>=1.24.0

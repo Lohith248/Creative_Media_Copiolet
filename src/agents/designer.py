@@ -64,7 +64,7 @@ def create_designer() -> Agent:
         tools=[generate_image],
         
         # Their "brain" - CrewAI will use Groq from environment
-        llm="groq/llama-3.1-8b-instant",
+        llm="groq/llama-3.3-70b-versatile",
         
         # Show their thinking process
         verbose=True,

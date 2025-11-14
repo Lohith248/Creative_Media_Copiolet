@@ -82,7 +82,7 @@ def create_reviewer() -> Agent:
         tools=[],
         
         # Their "brain" - Llama 3.1 via Groq
-        llm="groq/llama-3.1-8b-instant",
+        llm="groq/llama-3.3-70b-versatile",
         
         # Show their thinking process
         verbose=True,

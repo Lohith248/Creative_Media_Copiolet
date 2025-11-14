@@ -9,17 +9,44 @@ import os
 from datetime import datetime
 import json
 from pathlib import Path
+import random
+from dotenv import load_dotenv
+
+# Load environment variables first
+load_dotenv()
 
 # Add parent directory to path
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from crewai import Agent, Task, Crew, Process
+# Groq API Key Rotation
+def get_groq_api_key():
+    """Rotate between multiple Groq API keys to avoid rate limits."""
+    keys = []
+    for i in range(1, 5):  # Support up to 4 keys
+        key_name = f"GROQ_API_KEY_{i}" if i > 1 else "GROQ_API_KEY"
+        key = os.getenv(key_name)
+        if key:
+            keys.append(key)
+    
+    if not keys:
+        raise ValueError("No Groq API keys found in environment!")
+    
+    # Randomly select a key to distribute load
+    selected_key = random.choice(keys)
+    os.environ["GROQ_API_KEY"] = selected_key
+    print(f"🔑 Using Groq API Key #{keys.index(selected_key) + 1} of {len(keys)}")
+    return selected_key
+
+# Set initial key
+get_groq_api_key()
+
+from crewai import Task, Crew
 from agents.content_writer import create_content_writer
 from agents.designer import create_designer
 from agents.reviewer import create_reviewer
 from agents.compliance_agent import create_compliance_agent
 from agents.brand_guardian import create_brand_guardian
-from models.campaign_brief import CampaignBrief, BrandProfile, PLATFORM_PRESETS, BRAND_PRESETS
+from models.campaign_brief import CampaignBrief, PLATFORM_PRESETS, BRAND_PRESETS
 
 
 class CreativeMediaCrew:
@@ -64,12 +91,13 @@ class CreativeMediaCrew:
             "end_time": None
         }
     
-    def create_campaign(self, brief: CampaignBrief) -> dict:
+    def create_campaign(self, brief: CampaignBrief, include_research: bool = False) -> dict:
         """
         Create a complete campaign with multi-agent collaboration.
         
         Args:
             brief: CampaignBrief object with all campaign context
+            include_research: Whether to run market research before content creation
         
         Returns:
             dict with content, image_path, scores, metadata
@@ -87,6 +115,42 @@ class CreativeMediaCrew:
         print(f"Brand: {brief.brand.name} ({brief.brand.industry})")
         print(f"Audience: {brief.target_audience}")
         print(f"Platform: {brief.platform.name.upper()}\n")
+        
+        # Optional market research
+        research_insights = ""
+        if include_research:
+            print("🔍 STEP 0: Market Research Agent")
+            print("-" * 70)
+            try:
+                from agents.research_agent import create_research_agent
+                researcher = create_research_agent()
+                
+                research_task = Task(
+                    description=f"""
+Research the {brief.product_name} industry and {brief.target_audience} market. Provide:
+1. Current market trends and consumer behavior
+2. Competitor strategies on {brief.platform.name}
+3. Target audience preferences and pain points
+4. Recommended messaging approach
+
+Keep it concise - 3-4 key insights.""",
+                    expected_output="Concise market research with trends, competitors, audience insights, and recommendations",
+                    agent=researcher
+                )
+                
+                research_crew = Crew(
+                    agents=[researcher],
+                    tasks=[research_task],
+                    verbose=False
+                )
+                
+                research_result = str(research_crew.kickoff())
+                research_insights = f"\n\nMARKET RESEARCH INSIGHTS:\n{research_result}\n"
+                self.campaign_metadata["research"] = research_result
+                print("✅ Research complete!\n")
+            except Exception as e:
+                print(f"⚠️ Research failed: {e}\n")
+                research_insights = ""
         
         # Iteration loop
         content = None
@@ -120,24 +184,46 @@ class CreativeMediaCrew:
 
 PLATFORM BEST PRACTICES:
 {chr(10).join(f"• {bp}" for bp in brief.platform.best_practices)}
+{research_insights}
 
-YOUR TASK:
-Write compelling {brief.platform.name} content that:
-1. Stays within {brief.platform.optimal_chars} characters (max {brief.platform.max_chars})
-2. Opens with a strong hook that captures attention in first 125 characters
-3. Incorporates brand voice: {', '.join(brief.brand.voice_attributes)}
-4. Includes clear call-to-action: {brief.call_to_action}
-5. Uses {brief.platform.hashtag_limit} or fewer relevant hashtags
-6. Targets audience: {brief.target_audience}
-7. Conveys key message: {brief.key_message}
+🎯 YOUR MISSION:
+Create {brief.platform.name} content that makes people STOP scrolling and TAKE ACTION.
+
+📝 CONTENT REQUIREMENTS:
+1. CHARACTER LIMIT: {brief.platform.optimal_chars} chars (MAX {brief.platform.max_chars})
+2. OPENING HOOK: First 5-10 words must grab attention immediately
+3. BRAND VOICE: {', '.join(brief.brand.voice_attributes)}
+4. CALL-TO-ACTION: {brief.call_to_action}
+5. HASHTAGS: {brief.platform.hashtag_limit} or fewer, highly relevant
+6. TARGET AUDIENCE: {brief.target_audience}
+7. KEY MESSAGE: {brief.key_message}
+
+🧠 PSYCHOLOGY TRIGGERS TO USE:
+- Curiosity gap (make them want to learn more)
+- Emotion (joy, inspiration, surprise, urgency)
+- Social proof (community, belonging)
+- Value proposition (what's in it for them?)
+
+✍️ WRITING FRAMEWORK:
+Line 1: HOOK - Stop the scroll (question, bold statement, or surprising fact)
+Line 2-3: PROBLEM/BENEFIT - Why this matters to them
+Line 4-5: SOLUTION/VALUE - What you're offering
+Line 6: CALL-TO-ACTION - Clear next step
+Hashtags: Relevant and discoverable
 
 TONE: {brief.brand.tone}
 CONTENT TYPE: {brief.content_type}
 {previous_feedback}
 
+⚠️ AVOID:
+- Generic openings like "Hey there!" or "Check this out"
+- Salesy language that feels pushy
+- Too many emojis (2-4 max for {brief.platform.name})
+- Vague calls-to-action
+
 REQUIRED OUTPUT FORMAT:
 [Main Content]
-(Your engaging post text here)
+(Your engaging post text here - make every word count!)
 
 [Hashtags]
 #hashtag1 #hashtag2 #hashtag3
@@ -145,7 +231,7 @@ REQUIRED OUTPUT FORMAT:
 [Character Count]
 Total: XXX characters""",
                 
-                expected_output="Formatted social media post with content, hashtags, and character count",
+                expected_output="Formatted social media post with compelling hook, emotional resonance, clear value proposition, and strategic hashtags",
                 agent=self.writer
             )
             
@@ -155,7 +241,24 @@ Total: XXX characters""",
                 verbose=False
             )
             
-            content = writer_crew.kickoff()
+            max_retries = 4  # Try all 4 keys if needed
+            for attempt in range(max_retries):
+                try:
+                    content = str(writer_crew.kickoff())
+                    break  # Success!
+                except Exception as e:
+                    if "rate limit" in str(e).lower() and attempt < max_retries - 1:
+                        print(f"⚠️ Rate limit hit on key #{attempt + 1}! Switching to next Groq API key...")
+                        get_groq_api_key()  # Switch to different key
+                        # Recreate the agent with new key
+                        self.writer = create_content_writer()
+                        writer_crew = Crew(
+                            agents=[self.writer],
+                            tasks=[writer_task],
+                            verbose=False
+                        )
+                    else:
+                        raise e
             print("✅ Content created!\n")
             iteration_data["agents"].append({
                 "name": "Content Writer",
@@ -173,32 +276,50 @@ Total: XXX characters""",
             designer_task = Task(
                 description=f"""{brief.to_context_string()}
 
-VISUAL REQUIREMENTS:
+🎨 VISUAL DESIGN BRIEF:
+• Platform: {brief.platform.name}
 • Image Ratio: {brief.platform.image_ratio}
 • Visual Style: {visual_desc}
 • {color_desc}
-• Mood: Align with {brief.brand.tone} tone
+• Mood: {brief.brand.tone}
 • Brand: {brief.brand.name} ({brief.brand.industry})
 
-CONTENT CONTEXT:
+📝 CONTENT CONTEXT:
 {content}
 
-YOUR TASK:
-Create a stunning visual that:
-1. Complements the written content perfectly
-2. Uses {brief.platform.image_ratio} aspect ratio for {brief.platform.name}
-3. Embodies brand style: {visual_desc}
-4. Captures attention and drives engagement
-5. Is optimized for {brief.platform.name} feed
-6. Conveys: {brief.key_message}
+🎯 YOUR MISSION:
+Create a scroll-stopping visual that instantly communicates the message and drives engagement.
 
-COMPOSITION GUIDELINES:
-• Clear focal point and visual hierarchy
-• Brand-appropriate color psychology
-• Platform-optimized design (mobile-first for Instagram, etc.)
-• Professional quality and polish
+✨ DESIGN REQUIREMENTS:
+1. COMPOSITION: {brief.platform.image_ratio} ratio optimized for {brief.platform.name}
+2. FOCAL POINT: Clear main subject that draws the eye
+3. BRAND ALIGNMENT: Reflects {visual_desc} aesthetic
+4. COLOR PSYCHOLOGY: Use colors that evoke {brief.brand.tone} emotions
+5. PLATFORM OPTIMIZATION: Mobile-first design (most users on phone)
+6. MESSAGE: Visually represents "{brief.key_message}"
 
-Generate the image using your image generation tool.""",
+🧠 VISUAL PSYCHOLOGY:
+- Create emotional connection through imagery
+- Use negative space for breathing room
+- Ensure text readability if any overlays
+- Follow rule of thirds for composition
+- Make it thumb-stopping worthy
+
+🎨 STYLE GUIDELINES:
+- Professional quality, not stock-photo generic
+- {visual_desc} aesthetic throughout
+- Consistent with brand identity
+- Platform-native look and feel
+- High contrast for mobile screens
+
+⚠️ AVOID:
+- Cluttered compositions
+- Hard-to-read text
+- Off-brand colors or styles
+- Generic stock photo vibes
+- Poor mobile viewing experience
+
+Generate the image using your image generation tool. Make it memorable!""",
                 
                 expected_output="Generated image file path",
                 agent=self.designer
@@ -279,7 +400,23 @@ Be specific and actionable in your feedback.""",
                 verbose=False
             )
             
-            review_result = reviewer_crew.kickoff()
+            max_retries = 4
+            for attempt in range(max_retries):
+                try:
+                    review_result = reviewer_crew.kickoff()
+                    break
+                except Exception as e:
+                    if "rate limit" in str(e).lower() and attempt < max_retries - 1:
+                        print("⚠️ Rate limit hit on reviewer! Switching to next Groq API key...")
+                        get_groq_api_key()
+                        self.reviewer = create_reviewer()
+                        reviewer_crew = Crew(
+                            agents=[self.reviewer],
+                            tasks=[reviewer_task],
+                            verbose=False
+                        )
+                    else:
+                        raise e
             print("✅ Review complete!\n")
             
             # Parse scores from review
@@ -365,7 +502,23 @@ Score <70: REJECTED""",
                 verbose=False
             )
             
-            compliance_result = compliance_crew.kickoff()
+            max_retries = 4
+            for attempt in range(max_retries):
+                try:
+                    compliance_result = compliance_crew.kickoff()
+                    break
+                except Exception as e:
+                    if "rate limit" in str(e).lower() and attempt < max_retries - 1:
+                        print("⚠️ Rate limit hit on compliance! Switching to next Groq API key...")
+                        get_groq_api_key()
+                        self.compliance = create_compliance_agent()
+                        compliance_crew = Crew(
+                            agents=[self.compliance],
+                            tasks=[compliance_task],
+                            verbose=False
+                        )
+                    else:
+                        raise e
             print("✅ Compliance check complete!\n")
             
             # Parse compliance
@@ -465,9 +618,9 @@ Use your check_brand_alignment tool to calculate semantic similarity between the
             approved = quality_ok and compliance_ok and brand_ok
             
             if approved:
-                print(f"\n✅ ALL CHECKS PASSED! Campaign approved!")
+                print("\n✅ ALL CHECKS PASSED! Campaign approved!")
             else:
-                print(f"\n⚠️ Some checks failed:")
+                print("\n⚠️ Some checks failed:")
                 if not quality_ok:
                     print(f"   - Quality score too low ({review_scores.get('overall', 0)}/10, need >= 7.5)")
                 if not compliance_ok:
@@ -478,7 +631,7 @@ Use your check_brand_alignment tool to calculate semantic similarity between the
                 if self.current_iteration < self.max_iterations:
                     print(f"\n🔄 Starting iteration {self.current_iteration + 1}...")
                 else:
-                    print(f"\n⚠️ Max iterations reached. Using best available version.")
+                    print("\n⚠️ Max iterations reached. Using best available version.")
             
             # Store iteration data
             iteration_data["scores"] = {
