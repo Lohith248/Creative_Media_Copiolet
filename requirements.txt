@@ -28,9 +28,6 @@ pyyaml>=6.0
 # User Interface
 gradio>=4.10.0
 
-# Database - Supabase for cloud storage
-supabase>=2.0.0
-
 # Data Visualization & Analytics
 plotly>=5.18.0
 pandas>=2.0.0

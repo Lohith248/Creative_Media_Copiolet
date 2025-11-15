@@ -380,16 +380,58 @@ Total: XXX characters""",
             print("🎨 STEP 2: Designer Agent")
             print("-" * 70)
             
-            # Build visual style description
+            # Build professional image prompt
             visual_desc = f"{brief.brand.visual_style}" if brief.brand.visual_style else "professional and engaging"
-            color_desc = f"Color palette: {', '.join(brief.brand.color_palette)}" if brief.brand.color_palette else ""
+            color_palette = ', '.join(brief.brand.color_palette) if brief.brand.color_palette else "natural, clean colors"
+            brand_values = ', '.join(brief.brand.values[:3]) if brief.brand.values else "quality, innovation"
+            
+            # Generate structured Instagram-ready prompt
+            image_prompt = f"""Create a high-quality {brief.platform.name}-ready promotional image.
+
+CONTENT DETAILS:
+• Product: {brief.brand.name}
+• Concept: {brand_values}, {visual_desc}
+• Target Audience: {brief.target_audience}
+• Mood: {brief.brand.tone}, modern, clean, professional
+
+VISUAL REQUIREMENTS:
+• Close-up or lifestyle shot showcasing the product prominently
+• Outdoor natural light OR minimalist clean studio background
+• Color scheme: {color_palette} with subtle accents
+• Person using/wearing product (if applicable) — modern, casual style matching {brief.brand.tone} tone
+• Full focus on the product (product is the hero of the image)
+• Soft shadows, high contrast, mobile-optimized colors
+
+CAMERA & STYLE:
+• DSLR professional photography look
+• {brief.platform.image_ratio} ratio optimized for {brief.platform.name}
+• Shallow depth of field for product focus
+• Vibrant, clean, fresh aesthetic
+• Professional commercial product photography quality
+• Sharp details, no pixelation or artifacts
+
+ENVIRONMENT:
+• Clean, uncluttered background that doesn't distract from product
+• Professional lighting setup (natural daylight or studio softbox)
+• Product centered in frame, clearly visible
+• Space for text overlay if needed (but no text in image)
+
+AVOID:
+• Pixelated or low-resolution output
+• Cartoon, anime, or illustrated style
+• Busy or cluttered backgrounds
+• Product not visible or off-center
+• Dark or poorly lit scenes
+• Watermarks, logos, or text overlays"""
             
             designer_task = Task(
-                description=f"""Use your generate_image tool to create image.
+                description=f"""Use your generate_image tool to create a professional marketing image.
 
-Prompt: High-quality {brief.brand.name} marketing visual, {brief.platform.name} {brief.platform.image_ratio} ratio, professional studio lighting, {color_desc.lower() if color_desc else 'brand colors'}, clean background, sharp focus, modern aesthetic, product in center frame, no text overlay, no watermarks, ultra realistic, commercial photography style, {brief.brand.tone} mood
+IMPORTANT: Call generate_image with this EXACT prompt:
 
-REQUIRED: Call generate_image(prompt="...") now.""",
+{image_prompt}
+
+REQUIRED: Call generate_image(prompt="...") now with the full prompt above.""",
                 
                 expected_output="File path to generated image",
                 agent=self._get_designer()

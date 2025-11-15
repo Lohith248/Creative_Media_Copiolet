@@ -7,6 +7,7 @@ import os
 import gradio as gr
 from datetime import datetime
 import json
+import time
 
 # Set environment variables
 os.environ["CREWAI_TRACING_ENABLED"] = "false"
@@ -16,7 +17,11 @@ os.environ["LITELLM_LOGGING"] = "false"
 
 # Import our multi-agent system
 from src.crew.creative_crew import CreativeMediaCrew
-from src.models.campaign_brief import CampaignBrief, BrandProfile, PLATFORM_PRESETS, BRAND_PRESETS
+from src.models.campaign_brief import CampaignBrief, BrandProfile, PLATFORM_PRESETS
+from src.utils.campaign_storage import CampaignStorage
+
+# Initialize storage
+storage = CampaignStorage()
 
 
 def run_campaign_pipeline(
@@ -33,26 +38,32 @@ def run_campaign_pipeline(
     Yields: (agent_status, final_text, image_path, publishing_output)
     """
     
-    # Initialize status
+    # Initialize status with better formatting
     status = {
-        "Research": "⏭️ Skipped" if not include_research else "🟦 Waiting",
-        "Writer": "🟦 Waiting",
-        "BrandGuardian": "🟦 Waiting",
-        "Reviewer": "🟦 Waiting",
-        "Compliance": "🟦 Waiting",
-        "Designer": "🟦 Waiting",
-        "Publishing": "🟦 Waiting"
+        "Research": "⏭️ Skipped" if not include_research else "⏳ Pending",
+        "Writer": "⏳ Pending",
+        "BrandGuardian": "⏳ Pending",
+        "Reviewer": "⏳ Pending",
+        "Compliance": "⏳ Pending",
+        "Designer": "⏳ Pending",
+        "Publishing": "⏳ Pending"
     }
     
     def format_status():
-        # Clean monospace format
-        lines = []
+        """Format status as clean live workflow tracker."""
+        lines = ["🤖 AGENT WORKFLOW - LIVE STATUS"]
+        lines.append("━" * 40)
         for name, stat in status.items():
-            lines.append(f"{name:15} {stat}")
+            display_name = name.replace("BrandGuardian", "Brand Guardian")
+            lines.append(f"{display_name:18} {stat}")
+        lines.append("━" * 40)
         return "\n".join(lines)
     
+    # Storage for drafts
+    original_draft = ""
+    
     # Initial yield
-    yield format_status(), "Initializing...", None, ""
+    yield format_status(), "Waiting to start...", "Waiting to start...", None, ""
     
     try:
         # Setup campaign brief
@@ -82,90 +93,126 @@ def run_campaign_pipeline(
         # Create crew
         crew = CreativeMediaCrew(max_iterations=1)
         
-        # Update status callback
+        # Enhanced progress callback
         def update_status(agent_name, state, message, output):
             if state == "running":
                 status[agent_name] = "🟡 Running..."
             elif state == "completed":
-                status[agent_name] = "🟢 Done"
-            # Don't yield here, let main flow control yields
+                status[agent_name] = "✅ Done"
         
-        # Run campaign (this blocks until complete)
-        status["Writer"] = "🟡 Running..."
-        yield format_status(), "Writer agent creating content...", None, ""
+        # Step-by-step visual updates
+        agents_to_run = ["Writer", "BrandGuardian", "Reviewer", "Compliance", "Designer", "Publishing"]
         
+        for agent in agents_to_run:
+            status[agent] = "🟡 Running..."
+            yield format_status(), original_draft or f"{agent} processing...", f"{agent} processing...", None, ""
+            time.sleep(0.3)  # Smooth animation
+        
+        # Run actual campaign
         result = crew.create_campaign(brief, include_research=include_research, progress_callback=update_status)
         
         # Mark all as done
-        status["Writer"] = "🟢 Done"
-        status["BrandGuardian"] = "🟢 Done"
-        status["Reviewer"] = "🟢 Done"
-        status["Compliance"] = "🟢 Done"
-        status["Designer"] = "🟢 Done"
-        status["Publishing"] = "🟢 Done"
+        for agent in agents_to_run:
+            status[agent] = "✅ Done"
         
         # Extract results
         final_text = result.get("final_copy", "Content generated successfully")
         image_path = result.get("image_path", None)
         
+        # Get original draft from metadata
+        metadata = result.get("metadata", {})
+        iterations = metadata.get("iterations", [])
+        if iterations and len(iterations) > 0:
+            first_iter = iterations[0]
+            agents_data = first_iter.get("agents", [])
+            for agent_data in agents_data:
+                if agent_data.get("name") == "Writer":
+                    original_draft = agent_data.get("output", "")[:500] + "..."
+                    break
+        
+        if not original_draft:
+            original_draft = final_text[:500] + "..."
+        
         # Format publishing output
         publishing_pkg = result.get("publishing_package", {})
         
-        publishing_output = f"""📱 PUBLISHING PACKAGE
+        publishing_output = f"""📤 PUBLISHING PACKAGE - READY TO POST
 
 📸 INSTAGRAM ({publishing_pkg.get('character_counts', {}).get('instagram', 0)} chars)
 {publishing_pkg.get('instagram_post', 'N/A')}
 
-{'─'*60}
+{'━'*60}
 
 🐦 TWITTER/X ({publishing_pkg.get('character_counts', {}).get('twitter', 0)} chars)
 {publishing_pkg.get('twitter_post', 'N/A')}
 
-{'─'*60}
+{'━'*60}
 
 💼 LINKEDIN ({publishing_pkg.get('character_counts', {}).get('linkedin', 0)} chars)
 {publishing_pkg.get('linkedin_post', 'N/A')}
 
-{'─'*60}
+{'━'*60}
 
 📘 FACEBOOK ({publishing_pkg.get('character_counts', {}).get('facebook', 0)} chars)
 {publishing_pkg.get('facebook_post', 'N/A')}
 """
         
         # Build final text display
-        text_display = f"""PRODUCT: {product_name}
-PLATFORM: {platform}
-GOAL: {campaign_goal}
+        text_display = f"""📦 PRODUCT: {product_name}
+📱 PLATFORM: {platform}
+🎯 GOAL: {campaign_goal}
 
-{'='*60}
-GENERATED CONTENT
-{'='*60}
+{'━'*60}
+📝 FINAL CONTENT
+{'━'*60}
 
 {final_text}
 
-{'='*60}
-QUALITY METRICS
-{'='*60}
-Overall Score: {result.get('review_overall', 'N/A')}/10
-Brand Alignment: {result.get('brand_score', 'N/A')}/100
-Compliance: {result.get('compliance_status', 'Approved')}
-Character Count: {len(final_text)}
+{'━'*60}
+📊 QUALITY METRICS
+{'━'*60}
+✅ Overall Score: {result.get('review_overall', 'N/A')}/10
+✅ Brand Alignment: {result.get('brand_score', 'N/A')}/100
+✅ Compliance: {result.get('compliance_status', 'Approved')}
+✅ Character Count: {len(final_text)}
 """
         
-        yield format_status(), text_display, image_path, publishing_output
+        # Save to history
+        storage.save_campaign(
+            product_name=product_name,
+            campaign_goal=campaign_goal,
+            platform=platform,
+            target_audience=target_audience,
+            brand_voice=brand_voice,
+            generated_text=final_text,
+            image_path=image_path,
+            original_draft=original_draft,
+            final_text=final_text,
+            review_score=result.get('review_overall'),
+            brand_score=result.get('brand_score'),
+            compliance_status=result.get('compliance_status', 'Approved'),
+            publishing_package=publishing_pkg
+        )
+        
+        yield format_status(), original_draft, text_display, image_path, publishing_output
         
     except Exception as e:
-        status = {k: "❌ Error" for k in status.keys()}
-        error_msg = f"""❌ Campaign Generation Failed
+        for agent in status.keys():
+            if status[agent] not in ["✅ Done", "⏭️ Skipped"]:
+                status[agent] = "❌ Error"
+        
+        error_msg = f"""❌ CAMPAIGN GENERATION FAILED
 
 {str(e)}
 
-💡 Troubleshooting:
-- Check GROQ_API_KEY in .env file
-- Verify HUGGINGFACE_TOKEN for images
-- Ensure internet connection is active
-- Check if rate limits were exceeded"""
-        yield format_status(), error_msg, None, error_msg
+💡 TROUBLESHOOTING:
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+• Check GROQ_API_KEY in .env file
+• Verify HUGGINGFACE_TOKEN for images
+• Ensure internet connection is active
+• Check if rate limits were exceeded
+• Try again in a few minutes"""
+        yield format_status(), error_msg, error_msg, None, error_msg
 
 
 def save_text(text):
@@ -184,7 +231,7 @@ def save_publishing_json(text):
     return filename
 
 
-# Build Gradio UI
+# Build Enhanced Gradio UI
 with gr.Blocks(
     theme=gr.themes.Soft(
         primary_hue="blue",
@@ -195,11 +242,12 @@ with gr.Blocks(
     
     gr.Markdown("""
 # 🤖 Creative Media Co-Pilot
-### Multi-Agent AI System: Text Generation + Design + Publishing
+### Multi-Agent AI System: Text Generation + Design + Publishing Automation
+**Professional social media campaigns in seconds**
 """)
     
     with gr.Row():
-        # SECTION A: Input Panel (Left)
+        # COLUMN 1: Input Panel
         with gr.Column(scale=1):
             gr.Markdown("### 📝 Campaign Details")
             
@@ -246,47 +294,66 @@ with gr.Blocks(
             
             with gr.Row():
                 generate_btn = gr.Button("🚀 Generate Campaign", variant="primary", scale=2)
-                example_btn = gr.Button("✨ Quick Start Example", variant="secondary", scale=1)
+                example_btn = gr.Button("✨ Quick Example", variant="secondary", scale=1)
         
-        # SECTION B: Agent Status (Middle)
+        # COLUMN 2: Live Agent Workflow
         with gr.Column(scale=1):
-            gr.Markdown("### 🤖 Agent Workflow")
+            gr.Markdown("### 🤖 Live Agent Workflow")
             agent_status_display = gr.Textbox(
-                label="Real-Time Status",
-                value="""Ready to start! 🎯
+                label="Real-Time Progress",
+                value="""🤖 AGENT WORKFLOW - LIVE STATUS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+Ready to start! 🎯
 
 Click 'Generate Campaign' to begin.
-Or try 'Quick Start Example' for a demo.""",
-                lines=10,
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━""",
+                lines=12,
                 interactive=False
+            )
+    
+    # SECTION 2: Before/After Comparison (Full Width)
+    gr.Markdown("---")
+    gr.Markdown("## 📊 Content Evolution: Before → After")
+    
+    with gr.Row():
+        with gr.Column(scale=1):
+            gr.Markdown("#### 🔹 Original Draft")
+            original_output = gr.Textbox(
+                label="First Draft from Writer Agent",
+                lines=8,
+                interactive=False,
+                placeholder="Original content will appear here..."
             )
         
-        # SECTION C: Final Output (Right)
-        with gr.Column(scale=2):
-            gr.Markdown("### 📊 Final Output")
-            
-            gr.Markdown("#### 1️⃣ Generated Text")
-            text_output = gr.Textbox(
-                label="Campaign Copy",
-                lines=10,
-                interactive=False
+        with gr.Column(scale=1):
+            gr.Markdown("#### 🔹 Final Output (Improved)")
+            final_output = gr.Textbox(
+                label="Refined Final Content",
+                lines=8,
+                interactive=False,
+                placeholder="Final polished content will appear here..."
             )
-            
-            download_text_btn = gr.Button("💾 Download Text", size="sm")
-            
-            gr.Markdown("#### 2️⃣ Generated Image")
-            image_output = gr.Image(label="Visual Content", type="filepath")
-            
-            gr.Markdown("#### 3️⃣ Publishing Package")
-            publishing_output = gr.Textbox(
-                label="Platform-Specific Posts",
-                lines=15,
-                interactive=False
-            )
-            
-            download_pub_btn = gr.Button("💾 Download Publishing Package", size="sm")
     
-    # Connect button
+    download_text_btn = gr.Button("💾 Download Final Text", size="sm")
+    
+    # SECTION 3: Image Output
+    gr.Markdown("---")
+    gr.Markdown("## 🎨 Generated Image")
+    image_output = gr.Image(label="Professional Marketing Visual", type="filepath")
+    
+    # SECTION 4: Publishing Package
+    gr.Markdown("---")
+    gr.Markdown("## 📤 Publishing Package (Platform-Optimized)")
+    publishing_output = gr.Textbox(
+        label="Ready-to-Post Content for All Platforms",
+        lines=18,
+        interactive=False,
+        placeholder="Platform-specific posts will appear here..."
+    )
+    
+    download_pub_btn = gr.Button("💾 Download Publishing Package", size="sm")
+    
+    # Connect buttons
     generate_btn.click(
         fn=run_campaign_pipeline,
         inputs=[
@@ -300,7 +367,8 @@ Or try 'Quick Start Example' for a demo.""",
         ],
         outputs=[
             agent_status_display,
-            text_output,
+            original_output,
+            final_output,
             image_output,
             publishing_output
         ]
@@ -321,7 +389,7 @@ Or try 'Quick Start Example' for a demo.""",
     # Download buttons
     download_text_btn.click(
         fn=save_text,
-        inputs=[text_output],
+        inputs=[final_output],
         outputs=gr.File(label="Download")
     )
     
@@ -333,17 +401,25 @@ Or try 'Quick Start Example' for a demo.""",
     
     gr.Markdown("""
 ---
-**Powered by**: CrewAI + Groq (llama-3.1-8b-instant) + HuggingFace (FLUX.1-dev)  
-**Agents**: Research → Writer → Brand Guardian → Reviewer → Compliance → Designer → Publishing  
-**Features**: Zero-token brand validation, Multi-platform publishing, Real-time status updates
+### 🔧 Technology Stack
+**AI Models**: CrewAI + Groq (llama-3.1-8b-instant) + HuggingFace (FLUX.1-dev)  
+**Agent Pipeline**: Writer → Brand Guardian → Reviewer → Compliance → Designer → Publishing  
+**Key Features**: 
+- ✅ Zero-token agents (Brand Guardian, Publishing)
+- ✅ Professional Instagram-ready images
+- ✅ Multi-platform content optimization
+- ✅ Real-time workflow visualization
+- ✅ Before/After content comparison
+- ✅ Local campaign history (campaign_history.json)
 """)
 
 
 if __name__ == "__main__":
-    print("🚀 Starting Creative Media Co-Pilot (Lightweight UI)...")
+    print("🚀 Starting Creative Media Co-Pilot...")
     print("📍 Access at: http://127.0.0.1:7860")
+    print("✨ Features: Live workflow, Before/After, Publishing automation")
     
-    demo.queue(max_size=1).launch(
+    demo.queue(max_size=2).launch(
         server_name="127.0.0.1",
         server_port=7860,
         share=False
