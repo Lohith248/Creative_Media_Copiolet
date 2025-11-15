@@ -1,48 +1,127 @@
-# 🎨 NNet - Multi-Agent Creative Campaign System
+# 🤖 Creative Media Co-Pilot
 
-**AI-powered marketing campaign generator using multi-agent collaboration**
+### Multi-Agent AI System for Professional Social Media Campaigns
+**Generate complete campaigns in 30 seconds**: Text + Design + Publishing Automation
 
-Generate complete marketing campaigns with **TEXT + DESIGN + PUBLISHING** automation using CrewAI agents and Groq LLM.
-
----
-
-## 🌟 Features
-
-### ✅ Complete Workflow
-1. **TEXT Generation**: Content Writer → Reviewer → Compliance Agent
-2. **DESIGN Creation**: AI Designer with FLUX.1-dev image generation
-3. **PUBLISHING**: Platform-specific formatting (Instagram, Twitter, LinkedIn, Facebook)
-
-### 🤖 Multi-Agent System
-- **Content Writer**: Creates engaging marketing copy
-- **Reviewer**: Quality scoring and feedback (10-point scale)
-- **Compliance Agent**: Legal/policy validation (95+ score required)
-- **Designer**: Commercial-style image generation
-- **Local Brand Guardian**: Zero-token brand alignment checker (embeddings-based)
-- **Publishing Agent**: Zero-token platform formatter
-
-### ⚡ Optimized Performance
-- **Zero-token agents**: LocalBrandGuardian + PublishingAgent = no LLM overhead
-- **Global embedding model**: Load once, reuse everywhere
-- **Token efficiency**: max_iterations=1, simplified prompts
-- **Rate-limit handling**: 5-key rotation, intelligent delays
+[![Python 3.9+](https://img.shields.io/badge/python-3.9+-blue.svg)](https://www.python.org/downloads/)
+[![CrewAI](https://img.shields.io/badge/CrewAI-Multi--Agent-green.svg)](https://www.crewai.com/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
 ---
 
-## 🚀 Quick Start
+## 🎬 Demo
 
-### Prerequisites
+> **Quick Preview**: See the full workflow in action
+
+![Demo Animation](docs/demo.gif)
+*Campaign generation with live agent workflow tracking*
+
+---
+
+## ⚡ Run in 3 Steps
+
 ```bash
-# Python 3.9+
-python --version
+# 1️⃣ Clone the repository
+git clone https://github.com/Lohith248/Creative_Media_Copiolet.git
+cd Creative_Media_Copiolet
 
-# Virtual environment
-python -m venv venv
-.\venv\Scripts\Activate.ps1  # Windows
-source venv/bin/activate      # Linux/Mac
+# 2️⃣ Install dependencies
+pip install -r requirements.txt
+
+# 3️⃣ Add API keys to .env and run
+cp .env.example .env
+# Edit .env with your keys (see Setup section)
+python app_simple.py
 ```
 
-### Installation
+**Access at**: http://127.0.0.1:7860
+
+---
+
+## ✨ Key Features
+
+### 🎯 Core Capabilities
+
+| Feature | Description | Status |
+|---------|-------------|--------|
+| 🤖 **6 Specialized AI Agents** | Writer, Brand Guardian, Reviewer, Compliance, Designer, Publishing | ✅ |
+| 📱 **Multi-Platform Publishing** | Auto-formatted for Instagram, Twitter, LinkedIn, Facebook | ✅ |
+| 🎨 **Professional Images** | DSLR-quality product photography with FLUX.1-dev | ✅ |
+| ⚡ **Real-Time Workflow** | Live agent status tracking with visual progress | ✅ |
+| 📊 **Before/After Comparison** | See content evolution from draft to final | ✅ |
+| 💾 **Campaign History** | Local JSON storage (no database required) | ✅ |
+| 🔒 **Zero-Token Optimization** | 33% cost reduction with local brand validation | ✅ |
+| 📈 **Quality Metrics** | Automated scoring: quality, engagement, compliance | ✅ |
+
+### 🏗️ System Architecture
+
+```
+                    📝 User Input
+                    (Product, Goal, Audience)
+                           │
+                           ↓
+         ╔═════════════════════════════════════╗
+         ║      MULTI-AGENT WORKFLOW           ║
+         ╚═════════════════════════════════════╝
+                           │
+        ┌──────────────────┴──────────────────┐
+        ↓                                      ↓
+   🔍 Research                          ✍️ Content Writer
+   (Optional)                           (Engaging Copy)
+        │                                      │
+        └──────────────────┬──────────────────┘
+                           ↓
+                  🛡️ Brand Guardian
+                  (Zero-token Validation)
+                           │
+                           ↓
+                  🔎 Reviewer
+                  (Quality Scoring)
+                           │
+                           ↓
+                  ⚖️ Compliance
+                  (Legal Check)
+                           │
+                           ↓
+                  🎨 Designer
+                  (Image Generation)
+                           │
+                           ↓
+                  📤 Publishing
+                  (Platform Formatting)
+                           │
+                           ↓
+              ┌────────────────────────┐
+              │   📊 Final Output      │
+              │  • Text                │
+              │  • Image               │
+              │  • Publishing Package  │
+              └────────────────────────┘
+```
+
+### 💡 Why This Project Stands Out
+
+✅ **Zero-Token Agents**: 2 out of 6 agents use no API calls (brand validation + publishing)  
+✅ **Production-Ready**: Error handling, rate limiting, multi-key rotation  
+✅ **HuggingFace Compatible**: No database dependency, works on free tier  
+✅ **Professional Output**: Instagram-ready images with proper composition, lighting, DSLR style  
+✅ **Cost-Efficient**: ~$0.00 per campaign (Groq free tier + efficient prompting)  
+✅ **Real-Time Feedback**: Live agent workflow visualization
+
+---
+
+## 📋 Setup Guide
+
+### 1️⃣ Get Free API Keys
+
+| Service | Purpose | Free Tier | Get Key |
+|---------|---------|-----------|---------|
+| **Groq** | LLM (llama-3.1-8b) | 6000 TPM | [console.groq.com](https://console.groq.com) |
+| **HuggingFace** | Image generation | Free | [huggingface.co/settings/tokens](https://huggingface.co/settings/tokens) |
+| **Serper** (optional) | Web search | 2500/month | [serper.dev](https://serper.dev) |
+
+### 2️⃣ Installation & Setup
+
 ```bash
 # Install dependencies
 pip install -r requirements.txt
@@ -50,16 +129,57 @@ pip install -r requirements.txt
 # Setup environment variables
 cp .env.example .env
 # Add your API keys to .env:
-# - GROQ_API_KEY through GROQ_API_KEY_5
-# - HUGGINGFACEHUB_API_TOKEN
+# - GROQ_API_KEY_1, GROQ_API_KEY_2 (minimum 2 keys)
+# - HUGGINGFACE_TOKEN
 ```
 
-### Run
+### 3️⃣ Run
+
 ```bash
 python app_simple.py
 ```
 
 Open browser to `http://127.0.0.1:7860`
+
+---
+
+## 🎯 Usage Examples
+
+### Example 1: Product Launch
+```
+Product: EcoStep Sneakers
+Goal: Launch sustainable product line
+Audience: Eco-conscious millennials 25-35
+Platform: Instagram
+```
+
+**Output**: Professional caption + DSLR-quality image + 4 platform variants
+
+### Example 2: Service Promotion
+```
+Product: AI Writing Assistant  
+Goal: Increase free trial signups
+Audience: Content creators
+Platform: LinkedIn
+```
+
+**Output**: Professional post + brand visual + optimized character counts
+
+---
+
+## 🧪 Demo Mode (For Testing/Presentations)
+
+Enable demo mode for instant results without API calls:
+
+```bash
+# In .env file
+DEMO_MODE=true
+```
+
+**Perfect for**:
+- ✅ Presentations/demos
+- ✅ Testing UI without API keys
+- ✅ Showing judges your work instantly
 
 ---
 
