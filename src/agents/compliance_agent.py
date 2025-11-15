@@ -77,6 +77,8 @@ def create_compliance_agent() -> Agent:
         [List each issue with severity: CRITICAL / MAJOR / MINOR]
         [If no issues: "No compliance issues detected."]
         
+        IMPORTANT: Keep output short and concise.
+        
         CHECKS PERFORMED:
         ✓ Copyright & Trademark
         ✓ Legal & Regulatory
@@ -93,7 +95,7 @@ def create_compliance_agent() -> Agent:
         # TOOLS they can use
         tools=[],
         
-        # Their "brain" - Llama 3.1 via Groq
+        # Their "brain" - Llama 3.1 8B (faster, lower TPM)
         llm="groq/llama-3.1-8b-instant",
         
         # Show their thinking process
@@ -103,7 +105,7 @@ def create_compliance_agent() -> Agent:
         allow_delegation=False,
         
         # Maximum iterations
-        max_iter=2
+        max_iter=1
     )
 
 

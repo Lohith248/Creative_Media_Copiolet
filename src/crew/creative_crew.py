@@ -7,37 +7,61 @@ Coordinates 5 specialized agents for automated content creation with validation
 import sys
 import os
 from datetime import datetime
+from typing import Callable, Optional
 import json
 from pathlib import Path
-import random
+import time
+import logging
 from dotenv import load_dotenv
 
-# Load environment variables first
 load_dotenv()
 
-# Add parent directory to path
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+from src.utils.safe_types import (
+    safe_str, normalize_agent_output
+)
+
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+logger = logging.getLogger(__name__)
+
+# Global embedding model (load once, reuse everywhere)
+_EMBEDDING_MODEL = None
+
+def get_embedding_model():
+    """Load embedding model once and reuse globally (zero-token brand guardian)."""
+    global _EMBEDDING_MODEL
+    if _EMBEDDING_MODEL is None:
+        from sentence_transformers import SentenceTransformer
+        print("📊 Loading MiniLM-L6-v2 embedding model...")
+        _EMBEDDING_MODEL = SentenceTransformer('all-MiniLM-L6-v2')
+        print("✅ Embedding model loaded!")
+    return _EMBEDDING_MODEL
+
 # Groq API Key Rotation
+_current_key_index = 0
+_available_keys = []
+
 def get_groq_api_key():
     """Rotate between multiple Groq API keys to avoid rate limits."""
-    keys = []
-    for i in range(1, 5):  # Support up to 4 keys
-        key_name = f"GROQ_API_KEY_{i}" if i > 1 else "GROQ_API_KEY"
-        key = os.getenv(key_name)
-        if key:
-            keys.append(key)
+    global _current_key_index, _available_keys
     
-    if not keys:
-        raise ValueError("No Groq API keys found in environment!")
+    if not _available_keys:
+        for i in range(1, 6):
+            key_name = f"GROQ_API_KEY_{i}" if i > 1 else "GROQ_API_KEY"
+            key = os.getenv(key_name)
+            if key:
+                _available_keys.append((key_name, key))
     
-    # Randomly select a key to distribute load
-    selected_key = random.choice(keys)
+    if not _available_keys:
+        raise ValueError("No Groq API keys found!")
+    
+    _current_key_index = (_current_key_index + 1) % len(_available_keys)
+    key_name, selected_key = _available_keys[_current_key_index]
     os.environ["GROQ_API_KEY"] = selected_key
-    print(f"🔑 Using Groq API Key #{keys.index(selected_key) + 1} of {len(keys)}")
+    print(f"🔑 Switched to {key_name} (Key {_current_key_index + 1}/{len(_available_keys)})")
     return selected_key
 
-# Set initial key
 get_groq_api_key()
 
 from crewai import Task, Crew
@@ -45,7 +69,8 @@ from agents.content_writer import create_content_writer
 from agents.designer import create_designer
 from agents.reviewer import create_reviewer
 from agents.compliance_agent import create_compliance_agent
-from agents.brand_guardian import create_brand_guardian
+from agents.local_brand_guardian import LocalBrandGuardian
+from agents.publishing_agent import PublishingAgent
 from models.campaign_brief import CampaignBrief, PLATFORM_PRESETS, BRAND_PRESETS
 
 
@@ -63,26 +88,20 @@ class CreativeMediaCrew:
     7. Bundle outputs with metadata
     """
     
-    def __init__(self, max_iterations=3):
-        """
-        Initialize the crew with all agents.
-        
-        Args:
-            max_iterations: Maximum refinement cycles (default: 3)
-        """
+    def __init__(self, max_iterations=1):
+        """Initialize the crew with lazy agent loading."""
         self.max_iterations = max_iterations
         self.current_iteration = 0
         
-        # Initialize all 5 agents
         print("🤖 Initializing Creative Media Crew...")
-        self.writer = create_content_writer()
-        self.designer = create_designer()
-        self.reviewer = create_reviewer()
-        self.compliance = create_compliance_agent()
-        self.brand_guardian = create_brand_guardian()
-        print("✅ All 5 agents initialized!\n")
+        self.writer = None
+        self.designer = None
+        self.reviewer = None
+        self.compliance = None
+        self.local_brand_guardian = None
+        self.publishing_agent = PublishingAgent()
+        print("✅ Crew ready!\n")
         
-        # Metadata tracking
         self.campaign_metadata = {
             "agents_used": [],
             "iterations": [],
@@ -91,7 +110,43 @@ class CreativeMediaCrew:
             "end_time": None
         }
     
-    def create_campaign(self, brief: CampaignBrief, include_research: bool = False) -> dict:
+    def _get_writer(self):
+        """Lazy load writer agent"""
+        if self.writer is None:
+            print("📝 Loading Content Writer...")
+            self.writer = create_content_writer()
+        return self.writer
+    
+    def _get_designer(self):
+        """Lazy load designer agent"""
+        if self.designer is None:
+            print("🎨 Loading Designer...")
+            self.designer = create_designer()
+        return self.designer
+    
+    def _get_reviewer(self):
+        """Lazy load reviewer agent"""
+        if self.reviewer is None:
+            print("👁️ Loading Reviewer...")
+            self.reviewer = create_reviewer()
+        return self.reviewer
+    
+    def _get_compliance(self):
+        """Lazy load compliance agent"""
+        if self.compliance is None:
+            print("✅ Loading Compliance Agent...")
+            self.compliance = create_compliance_agent()
+        return self.compliance
+    
+    def _get_local_brand_guardian(self):
+        """Lazy load LOCAL brand guardian (uses global embedding model)."""
+        if self.local_brand_guardian is None:
+            print("🛡️ Loading Local Brand Guardian (zero-token)...")
+            embedding_model = get_embedding_model()  # Use global model
+            self.local_brand_guardian = LocalBrandGuardian(embedding_model)
+        return self.local_brand_guardian
+    
+    def create_campaign(self, brief: CampaignBrief, include_research: bool = False, progress_callback: Optional[Callable] = None) -> dict:
         """
         Create a complete campaign with multi-agent collaboration.
         
@@ -144,10 +199,22 @@ Keep it concise - 3-4 key insights.""",
                     verbose=False
                 )
                 
-                research_result = str(research_crew.kickoff())
+                if progress_callback:
+                    try:
+                        progress_callback("Research", "running", "Research agent starting", None)
+                    except Exception:
+                        pass
+
+                raw_research = research_crew.kickoff()
+                research_result = normalize_agent_output(raw_research)
                 research_insights = f"\n\nMARKET RESEARCH INSIGHTS:\n{research_result}\n"
                 self.campaign_metadata["research"] = research_result
                 print("✅ Research complete!\n")
+                if progress_callback:
+                    try:
+                        progress_callback("Research", "completed", "Research complete", research_result)
+                    except Exception:
+                        pass
             except Exception as e:
                 print(f"⚠️ Research failed: {e}\n")
                 research_insights = ""
@@ -173,7 +240,12 @@ Keep it concise - 3-4 key insights.""",
             # Build feedback string from previous iteration
             previous_feedback = ""
             if self.current_iteration > 1 and feedback_history:
-                previous_feedback = "\n\nPREVIOUS ITERATION FEEDBACK:\n" + "\n".join(feedback_history[-1:])
+                # feedback_history contains lists of feedback strings
+                last_feedback = feedback_history[-1]
+                if isinstance(last_feedback, list):
+                    previous_feedback = "\n\nPREVIOUS ITERATION FEEDBACK:\n" + "\n".join(last_feedback)
+                else:
+                    previous_feedback = "\n\nPREVIOUS ITERATION FEEDBACK:\n" + safe_str(last_feedback)
             
             # STEP 1: Content Writer
             print("📝 STEP 1: Content Writer Agent")
@@ -232,38 +304,77 @@ REQUIRED OUTPUT FORMAT:
 Total: XXX characters""",
                 
                 expected_output="Formatted social media post with compelling hook, emotional resonance, clear value proposition, and strategic hashtags",
-                agent=self.writer
+                agent=self._get_writer()
             )
             
             writer_crew = Crew(
-                agents=[self.writer],
+                agents=[self._get_writer()],
                 tasks=[writer_task],
                 verbose=False
             )
             
-            max_retries = 4  # Try all 4 keys if needed
+            max_retries = 5  # Try all 5 keys
             for attempt in range(max_retries):
                 try:
-                    content = str(writer_crew.kickoff())
+                    if progress_callback:
+                        try:
+                            progress_callback("Content Writer", "running", "Writer starting", None)
+                        except Exception:
+                            pass
+
+                    raw_content = writer_crew.kickoff()
+                    # Normalize output to ensure it's always a string
+                    content = normalize_agent_output(raw_content)
+                    # Validate the output
+                    if not content or len(content.strip()) < 10:
+                        raise ValueError("Writer returned empty or too short content")
+
+                    # Notify completion
+                    if progress_callback:
+                        try:
+                            progress_callback("Content Writer", "completed", "Writer finished", content)
+                        except Exception:
+                            pass
+
                     break  # Success!
                 except Exception as e:
-                    if "rate limit" in str(e).lower() and attempt < max_retries - 1:
-                        print(f"⚠️ Rate limit hit on key #{attempt + 1}! Switching to next Groq API key...")
-                        get_groq_api_key()  # Switch to different key
-                        # Recreate the agent with new key
-                        self.writer = create_content_writer()
-                        writer_crew = Crew(
-                            agents=[self.writer],
-                            tasks=[writer_task],
-                            verbose=False
-                        )
+                    error_msg = str(e).lower()
+                    if "rate limit" in error_msg:
+                        if attempt < max_retries - 1:
+                            # Extract wait time from error message
+                            import re
+                            wait_match = re.search(r'try again in (\d+(?:\.\d+)?)', error_msg)
+                            wait_time = float(wait_match.group(1)) if wait_match else 5
+                            
+                            logger.warning(f"⏳ Rate limit hit! Waiting {wait_time}s then switching to next key...")
+                            time.sleep(wait_time + 1)  # Wait suggested time + 1s buffer
+                            get_groq_api_key()  # Switch to different key
+                            time.sleep(1)  # Additional buffer after key switch
+                            
+                            # Recreate the agent with new key
+                            self.writer = None  # Reset for lazy reload
+                            writer_crew = Crew(
+                                agents=[self._get_writer()],
+                                tasks=[writer_task],
+                                verbose=False
+                            )
+                        else:
+                            raise ValueError("Rate limit exhausted after multiple attempts. Wait a few minutes.")
                     else:
+                        logger.error(f"Writer agent failed: {e}")
+                        if attempt >= max_retries - 1:
+                            raise ValueError(f"Writer agent failed after {max_retries} attempts: {e}")
                         raise e
-            print("✅ Content created!\n")
+            
+            logger.info("✅ Content created!")
             iteration_data["agents"].append({
                 "name": "Content Writer",
-                "output": str(content)[:200] + "..."
+                "output": safe_str(content)[:200] + "..."
             })
+            
+            # CRITICAL: Add delay to avoid hitting TPM limits
+            print("⏳ Cooling down to avoid rate limits (15s)...")
+            time.sleep(15)
             
             # STEP 2: Designer
             print("🎨 STEP 2: Designer Agent")
@@ -274,70 +385,76 @@ Total: XXX characters""",
             color_desc = f"Color palette: {', '.join(brief.brand.color_palette)}" if brief.brand.color_palette else ""
             
             designer_task = Task(
-                description=f"""{brief.to_context_string()}
+                description=f"""Use your generate_image tool to create image.
 
-🎨 VISUAL DESIGN BRIEF:
-• Platform: {brief.platform.name}
-• Image Ratio: {brief.platform.image_ratio}
-• Visual Style: {visual_desc}
-• {color_desc}
-• Mood: {brief.brand.tone}
-• Brand: {brief.brand.name} ({brief.brand.industry})
+Prompt: High-quality {brief.brand.name} marketing visual, {brief.platform.name} {brief.platform.image_ratio} ratio, professional studio lighting, {color_desc.lower() if color_desc else 'brand colors'}, clean background, sharp focus, modern aesthetic, product in center frame, no text overlay, no watermarks, ultra realistic, commercial photography style, {brief.brand.tone} mood
 
-📝 CONTENT CONTEXT:
-{content}
-
-🎯 YOUR MISSION:
-Create a scroll-stopping visual that instantly communicates the message and drives engagement.
-
-✨ DESIGN REQUIREMENTS:
-1. COMPOSITION: {brief.platform.image_ratio} ratio optimized for {brief.platform.name}
-2. FOCAL POINT: Clear main subject that draws the eye
-3. BRAND ALIGNMENT: Reflects {visual_desc} aesthetic
-4. COLOR PSYCHOLOGY: Use colors that evoke {brief.brand.tone} emotions
-5. PLATFORM OPTIMIZATION: Mobile-first design (most users on phone)
-6. MESSAGE: Visually represents "{brief.key_message}"
-
-🧠 VISUAL PSYCHOLOGY:
-- Create emotional connection through imagery
-- Use negative space for breathing room
-- Ensure text readability if any overlays
-- Follow rule of thirds for composition
-- Make it thumb-stopping worthy
-
-🎨 STYLE GUIDELINES:
-- Professional quality, not stock-photo generic
-- {visual_desc} aesthetic throughout
-- Consistent with brand identity
-- Platform-native look and feel
-- High contrast for mobile screens
-
-⚠️ AVOID:
-- Cluttered compositions
-- Hard-to-read text
-- Off-brand colors or styles
-- Generic stock photo vibes
-- Poor mobile viewing experience
-
-Generate the image using your image generation tool. Make it memorable!""",
+REQUIRED: Call generate_image(prompt="...") now.""",
                 
-                expected_output="Generated image file path",
-                agent=self.designer
+                expected_output="File path to generated image",
+                agent=self._get_designer()
             )
             
             designer_crew = Crew(
-                agents=[self.designer],
+                agents=[self._get_designer()],
                 tasks=[designer_task],
                 verbose=False
             )
             
-            image_result = designer_crew.kickoff()
-            image_path = str(image_result)
-            print("✅ Image created!\n")
-            iteration_data["agents"].append({
-                "name": "Designer",
-                "output": image_path
-            })
+            if progress_callback:
+                try:
+                    progress_callback("Designer", "running", "Designer starting", None)
+                except Exception:
+                    pass
+
+            try:
+                image_result = designer_crew.kickoff()
+                image_path = str(image_result)
+                
+                # Validate result - should be a file path, not a URL or hallucinated response
+                if not image_path or "http" in image_path.lower() or "api" in image_path.lower() or len(image_path) > 200:
+                    # Agent failed to use tool, call it directly
+                    print("⚠️ Designer didn't use tool properly, calling generate_image directly...")
+                    from tools.image_tools import generate_image
+                    
+                    # Build the prompt
+                    img_prompt = f"High-quality {brief.brand.name} marketing visual, {brief.platform.name} {brief.platform.image_ratio} ratio, professional studio lighting, {color_desc.lower() if color_desc else 'brand colors'}, clean background, sharp focus, modern aesthetic, product in center frame, no text overlay, no watermarks, ultra realistic, commercial photography style, {brief.brand.tone} mood"
+                    
+                    tool_result = generate_image.run(img_prompt)
+                    
+                    # Extract actual file path from tool result message
+                    if "saved to:" in tool_result:
+                        image_path = tool_result.split("saved to:")[-1].strip()
+                    elif "generated_images/" in tool_result:
+                        import re
+                        match = re.search(r'generated_images/[^\s"\']+\.png', tool_result)
+                        if match:
+                            image_path = match.group(0)
+                    else:
+                        image_path = tool_result
+                
+                print(f"✅ Image created: {image_path}\n")
+                iteration_data["agents"].append({
+                    "name": "Designer",
+                    "output": image_path
+                })
+                
+                if progress_callback:
+                    try:
+                        progress_callback("Designer", "completed", "Designer finished", image_path)
+                    except Exception:
+                        pass
+            except Exception as e:
+                print(f"⚠️ Designer error: {e}")
+                image_path = "Image generation failed"
+                if progress_callback:
+                    try:
+                        progress_callback("Designer", "completed", "Designer failed", None)
+                    except Exception:
+                        pass
+
+            # small pause to allow UI update and spread TPM
+            time.sleep(2)
             
             # STEP 3: Reviewer (Quality Scoring)
             print("📊 STEP 3: Reviewer Agent (Quality Scoring)")
@@ -391,41 +508,57 @@ SCORING CRITERIA:
 Be specific and actionable in your feedback.""",
                 
                 expected_output="Structured scores with strengths and improvements",
-                agent=self.reviewer
+                agent=self._get_reviewer()
             )
             
             reviewer_crew = Crew(
-                agents=[self.reviewer],
+                agents=[self._get_reviewer()],
                 tasks=[reviewer_task],
                 verbose=False
             )
             
-            max_retries = 4
+            max_retries = 5
             for attempt in range(max_retries):
                 try:
-                    review_result = reviewer_crew.kickoff()
+                    raw_review = reviewer_crew.kickoff()
+                    review_result = normalize_agent_output(raw_review)
                     break
                 except Exception as e:
-                    if "rate limit" in str(e).lower() and attempt < max_retries - 1:
-                        print("⚠️ Rate limit hit on reviewer! Switching to next Groq API key...")
-                        get_groq_api_key()
-                        self.reviewer = create_reviewer()
-                        reviewer_crew = Crew(
-                            agents=[self.reviewer],
-                            tasks=[reviewer_task],
-                            verbose=False
-                        )
+                    error_msg = str(e).lower()
+                    if "rate limit" in error_msg:
+                        if attempt < max_retries - 1:
+                            import re
+                            wait_match = re.search(r'try again in (\d+(?:\.\d+)?)', error_msg)
+                            wait_time = float(wait_match.group(1)) if wait_match else 5
+                            
+                            print(f"⏳ Rate limit! Waiting {wait_time}s then switching key...")
+                            time.sleep(wait_time + 1)
+                            get_groq_api_key()
+                            time.sleep(1)
+                            
+                            self.reviewer = None
+                            reviewer_crew = Crew(
+                                agents=[self._get_reviewer()],
+                                tasks=[reviewer_task],
+                                verbose=False
+                            )
+                        else:
+                            raise ValueError(f"Rate limit exhausted on reviewer. Wait a few minutes.")
                     else:
                         raise e
             print("✅ Review complete!\n")
             
             # Parse scores from review
-            review_scores = self._parse_review_scores(str(review_result))
+            review_scores = self._parse_review_scores(review_result)
             iteration_data["agents"].append({
                 "name": "Reviewer",
                 "scores": review_scores,
-                "output": str(review_result)[:200] + "..."
+                "output": safe_str(review_result)[:200] + "..."
             })
+            
+            # CRITICAL: Add delay to avoid rate limits
+            print("⏳ Cooling down (15s)...")
+            time.sleep(15)
             
             # STEP 4: Compliance Check
             print("⚖️ STEP 4: Compliance Agent (Legal/Ethical Check)")
@@ -493,27 +626,29 @@ Score 70-89: NEEDS REVIEW
 Score <70: REJECTED""",
                 
                 expected_output="Structured compliance report with status and issues",
-                agent=self.compliance
+                agent=self._get_compliance()
             )
             
             compliance_crew = Crew(
-                agents=[self.compliance],
+                agents=[self._get_compliance()],
                 tasks=[compliance_task],
                 verbose=False
             )
             
-            max_retries = 4
+            max_retries = 5
             for attempt in range(max_retries):
                 try:
-                    compliance_result = compliance_crew.kickoff()
+                    raw_compliance = compliance_crew.kickoff()
+                    compliance_result = normalize_agent_output(raw_compliance)
                     break
                 except Exception as e:
                     if "rate limit" in str(e).lower() and attempt < max_retries - 1:
                         print("⚠️ Rate limit hit on compliance! Switching to next Groq API key...")
+                        time.sleep(2)
                         get_groq_api_key()
-                        self.compliance = create_compliance_agent()
+                        self.compliance = None  # Reset for lazy reload
                         compliance_crew = Crew(
-                            agents=[self.compliance],
+                            agents=[self._get_compliance()],
                             tasks=[compliance_task],
                             verbose=False
                         )
@@ -522,72 +657,33 @@ Score <70: REJECTED""",
             print("✅ Compliance check complete!\n")
             
             # Parse compliance
-            compliance_status = self._parse_compliance(str(compliance_result))
+            compliance_status = self._parse_compliance(compliance_result)
             iteration_data["agents"].append({
                 "name": "Compliance",
                 "status": compliance_status["status"],
                 "score": compliance_status["score"],
-                "output": str(compliance_result)[:200] + "..."
+                "output": safe_str(compliance_result)[:200] + "..."
             })
             
-            # STEP 5: Brand Guardian (AI Embeddings)
-            print("🛡️ STEP 5: Brand Guardian Agent (Semantic Alignment)")
+            # STEP 5: Local Brand Guardian (ZERO-TOKEN - uses embeddings only)
+            print("🛡️ STEP 5: Local Brand Guardian (Zero-Token Embeddings)")
             print("-" * 70)
             
-            brand_task = Task(
-                description=f"""{brief.to_context_string()}
-
-CONTENT TO ANALYZE:
-{content}
-
-YOUR TASK:
-Use semantic embedding similarity (MiniLM-L6-v2) to measure brand alignment.
-
-BRAND VOICE ATTRIBUTES TO CHECK:
-{chr(10).join(f"• {attr}" for attr in brief.brand.voice_attributes)}
-
-BRAND VALUES:
-{chr(10).join(f"• {val}" for val in brief.brand.values)}
-
-REQUIRED OUTPUT FORMAT:
-Brand Score: XXX/100
-Alignment Level: [STRONG / MODERATE / WEAK]
-
-SEMANTIC ANALYSIS:
-• Voice Match: [Analysis of tone/voice alignment]
-• Values Alignment: [How well values are embodied]
-• Consistency: [Brand identity consistency]
-
-EMBEDDING SIMILARITY SCORES:
-• [Attribute 1]: XX% match
-• [Attribute 2]: XX% match
-
-RECOMMENDATIONS:
-• [How to improve brand alignment if needed]
-
-APPROVAL: [APPROVED if score ≥70, otherwise NEEDS REVISION]
-
-Use your check_brand_alignment tool to calculate semantic similarity between the content and brand attributes.""",
-                
-                expected_output="Brand alignment analysis with semantic similarity scores",
-                agent=self.brand_guardian
+            local_guardian = self._get_local_brand_guardian()
+            brand_result = local_guardian.check_brand_alignment(
+                content=content,
+                brand_voice_attributes=brief.brand.voice_attributes,
+                brand_values=brief.brand.values,
+                brand_tone=brief.brand.tone
             )
             
-            brand_crew = Crew(
-                agents=[self.brand_guardian],
-                tasks=[brand_task],
-                verbose=False
-            )
+            brand_score = brand_result["brand_score"]
+            print(f"✅ Brand check complete! Score: {brand_score}/100\n")
             
-            brand_result = brand_crew.kickoff()
-            print("✅ Brand check complete!\n")
-            
-            # Parse brand score
-            brand_score = self._parse_brand_score(str(brand_result))
             iteration_data["agents"].append({
-                "name": "Brand Guardian",
+                "name": "LocalBrandGuardian",
                 "score": brand_score,
-                "output": str(brand_result)[:200] + "..."
+                "output": f"Alignment: {brand_result['alignment_level']}, Score: {brand_score}/100"
             })
             
             # Collect feedback for next iteration
@@ -597,7 +693,7 @@ Use your check_brand_alignment tool to calculate semantic similarity between the
             if compliance_status['score'] < 90:
                 current_feedback.append(f"• Compliance: Issues detected (score {compliance_status['score']}/100) - review legal/ethical concerns")
             if brand_score < 70:
-                current_feedback.append(f"• Brand Guardian: Weak alignment ({brand_score}/100) - strengthen brand voice")
+                current_feedback.append(f"• Brand Guardian: Weak alignment ({brand_score}/100) - {', '.join(brand_result.get('recommendations', [])[:2])}")
             
             if current_feedback:
                 feedback_history.append(current_feedback)
@@ -608,7 +704,7 @@ Use your check_brand_alignment tool to calculate semantic similarity between the
             print(f"{'='*70}")
             print(f"Quality Score: {review_scores.get('overall', 0)}/10")
             print(f"Compliance Score: {compliance_status['score']}/100")
-            print(f"Brand Alignment: {brand_score}/100")
+            print(f"Brand Alignment: {brand_score}/100 ({brand_result['alignment_level']})")
             
             # Approval thresholds
             quality_ok = review_scores.get('overall', 0) >= 7.5
@@ -637,7 +733,7 @@ Use your check_brand_alignment tool to calculate semantic similarity between the
             iteration_data["scores"] = {
                 "quality": review_scores.get('overall', 0),
                 "compliance": compliance_status['score'],
-                "brand": brand_score
+                "brand": brand_score  # Keep for backwards compatibility but not validated
             }
             iteration_data["approved"] = approved
             self.campaign_metadata["iterations"].append(iteration_data)
@@ -647,16 +743,47 @@ Use your check_brand_alignment tool to calculate semantic similarity between the
         self.campaign_metadata["final_iteration"] = self.current_iteration
         self.campaign_metadata["approved"] = approved
         
+        # STEP 6: Publishing Agent (Platform-Specific Formatting - ZERO TOKENS)
+        print(f"\n{'='*70}")
+        print("📱 STEP 6: Publishing Agent (Platform-Specific Formatting)")
+        print(f"{'='*70}")
+        
+        publishing_package = self.publishing_agent.create_publishing_package(
+            content=content,
+            platform=brief.platform.name,
+            call_to_action=brief.call_to_action,
+            product_url=None,  # Could be added to brief if needed
+            brand_hashtags=None  # Could extract from brand
+        )
+        
+        print(f"✅ Publishing package created for all platforms!")
+        print(f"   - Instagram: {publishing_package['character_counts']['instagram']} chars")
+        print(f"   - Twitter: {publishing_package['character_counts']['twitter']} chars")
+        print(f"   - LinkedIn: {publishing_package['character_counts']['linkedin']} chars")
+        print(f"   - Facebook: {publishing_package['character_counts']['facebook']} chars\n")
+        
         result = {
             "content": str(content),
+            "final_copy": str(content),  # Add for app.py compatibility
             "image_path": image_path,
+            "publishing_package": publishing_package,  # NEW: Platform-specific posts
             "scores": {
                 "quality": review_scores.get('overall', 0),
                 "compliance": compliance_status['score'],
                 "brand": brand_score
             },
+            # Flatten scores for app.py compatibility
+            "review_overall": review_scores.get('overall', 0),
+            "review_quality": review_scores.get('quality', 0),
+            "review_readability": review_scores.get('readability', 0),
+            "review_engagement": review_scores.get('engagement', 0),
+            "brand_score": brand_score,
+            "compliance_status": compliance_status['status'],
+            "compliance_issues": compliance_status.get('issues', []),
+            # Provide both formats for iterations
             "approved": approved,
-            "iterations": self.current_iteration,
+            "iterations": self.campaign_metadata["iterations"],  # List of iteration data
+            "iteration_count": self.current_iteration,  # Int count
             "metadata": self.campaign_metadata
         }
         

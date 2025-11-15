@@ -22,12 +22,14 @@ def create_content_writer() -> Agent:
         - Platform-native content that feels authentic
         - Balancing creativity with brand guidelines
         
-        You think like a marketer, write like a poet, and optimize like a data scientist.""",
+        You think like a marketer, write like a poet, and optimize like a data scientist.
+        
+        IMPORTANT: Keep output short and concise.""",
         tools=[],
-        llm="groq/llama-3.3-70b-versatile",
+        llm="groq/llama-3.1-8b-instant",
         verbose=True,
         allow_delegation=False,
-        max_iter=3
+        max_iter=1
     )
 
 if __name__ == "__main__":

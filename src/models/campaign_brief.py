@@ -154,6 +154,15 @@ BRAND_PRESETS = {
         color_palette=["#6C5CE7", "#00D2D3", "#FD79A8"],
         visual_style="modern minimalist"
     ),
+    "tech_wellness": BrandProfile(
+        name="NeuroPulse",
+        voice_attributes=["innovative", "empowering", "supportive", "scientific"],
+        industry="health tech",
+        values=["mental wellness", "AI innovation", "stress reduction"],
+        tone="inspiring and professional",
+        color_palette=["#6C5CE7", "#00D2D3", "#FD79A8"],
+        visual_style="modern tech minimalist"
+    ),
     "eco_brand": BrandProfile(
         name="EcoLife",
         voice_attributes=["authentic", "sustainable", "caring", "educational"],

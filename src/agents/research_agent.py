@@ -55,7 +55,7 @@ def create_research_agent(
         
         verbose=True,
         allow_delegation=False,
-        llm="openrouter/qwen/qwen-2.5-72b-instruct:free",
+        llm="groq/llama-3.1-8b-instant",  # Using smallest/fastest model to avoid rate limits
         tools=tools,
         max_iter=15,
         memory=True,

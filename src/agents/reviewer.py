@@ -76,13 +76,15 @@ def create_reviewer() -> Agent:
         APPROVAL: [YES/NO - YES if overall score >= 7.5, NO otherwise]
         
         You are constructive but honest. If content needs work, you explain why clearly.
-        If it's excellent, you celebrate it but still offer one improvement idea.""",
+        If it's excellent, you celebrate it but still offer one improvement idea.
+        
+        IMPORTANT: Keep output short and concise.""",
         
         # TOOLS they can use
         tools=[],
         
-        # Their "brain" - Llama 3.1 via Groq
-        llm="groq/llama-3.3-70b-versatile",
+        # Their "brain" - Llama 3.1 8B (faster, lower TPM)
+        llm="groq/llama-3.1-8b-instant",
         
         # Show their thinking process
         verbose=True,
@@ -91,7 +93,7 @@ def create_reviewer() -> Agent:
         allow_delegation=False,
         
         # Maximum iterations
-        max_iter=2
+        max_iter=1
     )
 
 

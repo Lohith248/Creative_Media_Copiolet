@@ -74,6 +74,8 @@ def create_brand_guardian() -> Agent:
         
         You ALWAYS provide your evaluation in this EXACT format:
         
+        IMPORTANT: Keep output short and concise.
+        
         ---BRAND ALIGNMENT CHECK---
         Brand Score: [score]/100
         Alignment Level: [EXCELLENT / GOOD / MODERATE / WEAK]
@@ -107,7 +109,7 @@ def create_brand_guardian() -> Agent:
         allow_delegation=False,
         
         # Maximum iterations
-        max_iter=2
+        max_iter=1
     )
 
 

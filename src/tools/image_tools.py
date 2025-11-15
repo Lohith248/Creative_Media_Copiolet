@@ -46,6 +46,11 @@ def generate_image(prompt: str) -> str:
             print(f"✅ Image saved to: {image_path}")
             return f"Image successfully generated and saved to: {image_path}"
         
+        elif response.status_code == 402:
+            # HuggingFace credits exhausted - return placeholder
+            print("⚠️ HuggingFace credits exhausted - using placeholder")
+            return "Image generation skipped: HuggingFace credits exhausted. Campaign text content generated successfully."
+        
         elif response.status_code == 503:
             return "⏳ Model is loading on Hugging Face servers. Please wait 20 seconds and try again."
         

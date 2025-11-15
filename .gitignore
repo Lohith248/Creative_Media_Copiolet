@@ -18,15 +18,20 @@ ENV/
 .DS_Store
 Thumbs.db
 
-# Outputs
+# Outputs (keep sample images in repo for demo)
 outputs/
 generated_images/
-*.png
-*.jpg
 
 # Downloaded ML Models (large files)
 *.bin
 *.safetensors
+
+# Logs
+*.log
+
+# Test files
+test_*.py
+*_test.py
 
 # Logs
 logs/
