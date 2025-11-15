@@ -1,246 +1,205 @@
-# src/agents/brand_guardian.py
 """
-Brand Guardian Agent - Brand voice and alignment checking
-Uses MiniLM-L6-v2 embeddings for semantic brand alignment scoring
+Local Brand Guardian - Zero-Token Brand Alignment Checker
+Uses only embeddings and rule-based checks (NO LLM calls)
 """
 
-import sys
-import os
-# Add parent directory to path for imports
-sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-
-from crewai import Agent
-from tools.brand_tools import check_brand_alignment
+import re
+from typing import Dict, List, Optional
+from sentence_transformers import SentenceTransformer
+import numpy as np
 
 
-def create_brand_guardian() -> Agent:
-    """
-    Creates a Brand Guardian Agent with embedding-based brand checking.
+class BrandGuardian:
+    """Brand alignment checker using local embeddings and rules (no LLM tokens)."""
     
-    Returns:
-        Agent: A CrewAI agent specialized in brand alignment
+    # Tone keywords mapping
+    TONE_KEYWORDS = {
+        "playful": ["fun", "enjoy", "exciting", "love", "wow", "amazing", "awesome", "yay", "cool"],
+        "professional": ["streamline", "optimize", "efficient", "strategic", "innovative", "robust", "solution"],
+        "casual": ["hey", "you", "your", "let's", "check out", "pretty", "really", "super"],
+        "formal": ["therefore", "furthermore", "consequently", "accordingly", "respectively", "pertaining"],
+        "friendly": ["welcome", "happy", "glad", "thanks", "great", "wonderful", "appreciate"],
+        "inspiring": ["transform", "achieve", "empower", "breakthrough", "elevate", "unlock", "potential"],
+        "urgent": ["now", "today", "limited", "hurry", "fast", "quick", "immediately", "don't miss"],
+        "trustworthy": ["proven", "trusted", "certified", "guaranteed", "secure", "reliable", "authentic"]
+    }
     
-    How this works:
-    - Uses MiniLM-L6-v2 embeddings for semantic similarity
-    - Compares content against brand voice attributes
-    - Provides quantitative brand alignment scores
-    - This is AI validating AI - a key hackathon requirement!
-    """
+    # Forbidden phrases (red flags)
+    FORBIDDEN_PHRASES = [
+        "100% guaranteed", "instant cure", "miracle", "get rich quick",
+        "free forever", "no risk", "proven to work", "doctors hate",
+        "one weird trick", "shocking results", "lose weight fast",
+        "make money fast", "too good to be true", "limited time only"
+    ]
     
-    return Agent(
-        # WHO is this agent?
-        role='Brand Voice Guardian & Alignment Specialist',
+    def __init__(self, embedding_model: Optional[SentenceTransformer] = None):
+        """Initialize with embedding model (shared from main app)."""
+        self.embedding_model = embedding_model
         
-        # WHAT is their mission?
-        goal='Ensure all content perfectly aligns with brand voice, values, and identity using advanced semantic analysis',
-        
-        # WHY are they qualified?
-        backstory="""You are an expert brand strategist with 20+ years of experience 
-        in brand identity, voice development, and content consistency across Fortune 500 companies.
-        
-        Your expertise includes:
-        - Brand voice definition and guidelines
-        - Semantic content analysis
-        - Multi-channel brand consistency
-        - Tone and messaging optimization
-        - Brand positioning and differentiation
-        
-        You use ADVANCED AI TECHNOLOGY (MiniLM-L6-v2 semantic embeddings) to:
-        - Measure semantic similarity between content and brand voice
-        - Detect subtle tone misalignments
-        - Ensure consistent messaging across all content
-        - Validate that content embodies brand values
-        
-        Your analysis process:
-        
-        1. SEMANTIC EMBEDDING ANALYSIS:
-           - Uses neural networks to understand content meaning
-           - Compares content embeddings to brand voice attributes
-           - Calculates cosine similarity scores
-           - Provides quantitative brand alignment metrics
-        
-        2. BRAND VOICE ATTRIBUTES YOU CHECK:
-           ✓ Inspiring and motivational tone
-           ✓ Authentic and genuine messaging
-           ✓ Sustainable and eco-conscious values
-           ✓ Empowering and positive energy
-           ✓ Transparent and honest communication
-        
-        3. RED FLAGS YOU DETECT:
-           ✗ Manipulative marketing tactics
-           ✗ Aggressive or pushy sales language
-           ✗ False urgency or scarcity
-           ✗ Misleading or exaggerated claims
-        
-        You ALWAYS provide your evaluation in this EXACT format:
-        
-        IMPORTANT: Keep output short and concise.
-        
-        ---BRAND ALIGNMENT CHECK---
-        Brand Score: [score]/100
-        Alignment Level: [EXCELLENT / GOOD / MODERATE / WEAK]
-        
-        EMBEDDING ANALYSIS:
-        [Results from semantic similarity tool]
-        
-        BRAND VOICE ASSESSMENT:
-        ✓ [What aligns well with brand]
-        ✗ [What doesn't align]
-        
-        RECOMMENDATIONS:
-        [Specific suggestions to improve brand alignment]
-        
-        APPROVAL: [YES if score >= 70, NO if score < 70]
-        ---END BRAND ALIGNMENT CHECK---
-        
-        You are the guardian of brand integrity. When content doesn't align,
-        you explain WHY and provide specific phrases to improve it.""",
-        
-        # TOOLS they can use
-        tools=[check_brand_alignment],
-        
-        # Their "brain" - Llama 3.1 via Groq
-        llm="groq/llama-3.1-8b-instant",
-        
-        # Show their thinking process
-        verbose=True,
-        
-        # Can they ask other agents for help?
-        allow_delegation=False,
-        
-        # Maximum iterations
-        max_iter=1
-    )
-
-
-# Test the agent
-if __name__ == "__main__":
-    """
-    Test if the Brand Guardian agent works correctly
-    Run with: python src/agents/brand_guardian.py
-    """
-    
-    from crewai import Task, Crew
-    from dotenv import load_dotenv
-    load_dotenv()
-    
-    print("🧪 Testing Brand Guardian Agent...\n")
-    
-    try:
-        # Create the agent
-        brand_guardian = create_brand_guardian()
-        print("✅ Brand Guardian agent created!\n")
-        
-        # Test Case 1: Good brand alignment
-        good_content = """
-        Step into sustainable style with EcoStep! 🌱👟
-        
-        Our sneakers are crafted from recycled ocean plastic and organic cotton. 
-        Every pair you purchase helps plant 5 trees through our partnership with TreePeople.
-        
-        Look good, feel good, do good. That's the EcoStep way.
-        
-        Limited edition available tomorrow at 9 AM PST.
-        Shop now: ecostep.com
-        
-        #EcoFriendly #SustainableStyle #EcoStep
+    def check_brand_alignment(
+        self,
+        content: str,
+        brand_voice_attributes: List[str],
+        brand_values: List[str],
+        brand_tone: str
+    ) -> Dict:
+        """
+        Check brand alignment using embeddings + rules.
+        Returns score 0-100 and detailed analysis.
         """
         
-        # Test Case 2: Poor brand alignment
-        bad_content = """
-        🚨 URGENT!!! LAST CHANCE!!! 🚨
+        # Clean content
+        content_lower = content.lower()
         
-        EcoStep sneakers - BETTER than Nike! BETTER than Adidas! 
-        BUY NOW before they're GONE FOREVER!!!
+        # 1. Semantic similarity with brand values
+        values_score = self._check_values_alignment(content, brand_values)
         
-        Only 3 pairs left! Don't be the LOSER who misses out!!!
+        # 2. Tone matching
+        tone_score = self._check_tone_match(content_lower, brand_tone, brand_voice_attributes)
         
-        FLASH SALE - 90% OFF (but only if you buy in the next 10 minutes!!!)
+        # 3. Voice attributes match
+        voice_score = self._check_voice_attributes(content_lower, brand_voice_attributes)
         
-        Act NOW or regret it FOREVER!!!
-        """
+        # 4. Forbidden phrases check
+        forbidden_issues = self._check_forbidden_phrases(content_lower)
         
-        print("="*60)
-        print("TEST 1: GOOD BRAND ALIGNMENT")
-        print("="*60)
+        # Calculate overall score
+        overall_score = int((values_score * 0.4) + (tone_score * 0.3) + (voice_score * 0.3))
         
-        task1 = Task(
-            description=f"""Analyze this content for brand alignment using semantic embeddings:
+        # Penalties
+        if forbidden_issues:
+            overall_score -= len(forbidden_issues) * 15
+            overall_score = max(0, overall_score)
+        
+        # Determine approval
+        approved = overall_score >= 70 and len(forbidden_issues) == 0
+        
+        # Build recommendations
+        recommendations = []
+        if tone_score < 70:
+            recommendations.append(f"Adjust tone to be more {brand_tone}")
+        if voice_score < 70:
+            recommendations.append(f"Strengthen voice attributes: {', '.join(brand_voice_attributes[:2])}")
+        if values_score < 70:
+            recommendations.append(f"Incorporate brand values: {', '.join(brand_values[:2])}")
+        if forbidden_issues:
+            recommendations.append(f"Remove problematic phrases: {', '.join(forbidden_issues[:2])}")
+        
+        return {
+            "brand_score": overall_score,
+            "tone_score": int(tone_score),
+            "voice_score": int(voice_score),
+            "values_score": int(values_score),
+            "issues": forbidden_issues + ([f"Low tone match ({int(tone_score)}/100)"] if tone_score < 70 else []),
+            "recommendations": recommendations,
+            "approved": approved,
+            "alignment_level": "STRONG" if overall_score >= 85 else "MODERATE" if overall_score >= 70 else "WEAK"
+        }
+    
+    def _check_values_alignment(self, content: str, brand_values: List[str]) -> float:
+        """Check semantic similarity between content and brand values."""
+        if not self.embedding_model or not brand_values:
+            return 75.0  # Default neutral score
+        
+        try:
+            # Encode content and values
+            content_embedding = self.embedding_model.encode(content, convert_to_tensor=False)
+            values_text = " ".join(brand_values)
+            values_embedding = self.embedding_model.encode(values_text, convert_to_tensor=False)
             
-            CONTENT TO ANALYZE:
-            {good_content}
+            # Cosine similarity
+            similarity = np.dot(content_embedding, values_embedding) / (
+                np.linalg.norm(content_embedding) * np.linalg.norm(values_embedding)
+            )
             
-            Brand: EcoStep
-            Brand Values: Sustainability, authenticity, inspiration, empowerment, transparency
-            Brand Voice: Inspiring, genuine, eco-conscious, positive, honest
+            # Convert to 0-100 score
+            score = float((similarity + 1) / 2 * 100)  # Normalize from [-1,1] to [0,100]
+            return min(100, max(0, score))
             
-            Use the brand alignment tool to check semantic similarity.
-            Provide your brand alignment assessment with score and recommendations.""",
-            
-            expected_output="Brand alignment score, embedding analysis, and approval decision",
-            agent=brand_guardian
-        )
+        except Exception as e:
+            print(f"⚠️ Embedding similarity failed: {e}")
+            return 75.0
+
+    def _check_tone_match(self, content_lower: str, brand_tone: str, voice_attrs: List[str]) -> float:
+        """Check if content matches expected tone using keyword matching."""
+        tone_lower = brand_tone.lower()
         
-        crew1 = Crew(
-            agents=[brand_guardian],
-            tasks=[task1],
-            verbose=True
-        )
+        # Get expected keywords for this tone
+        expected_keywords = self.TONE_KEYWORDS.get(tone_lower, [])
         
-        result1 = crew1.kickoff()
+        # Also check voice attributes for tone keywords
+        for attr in voice_attrs:
+            attr_lower = attr.lower()
+            if attr_lower in self.TONE_KEYWORDS:
+                expected_keywords.extend(self.TONE_KEYWORDS[attr_lower])
         
-        print("\n" + "="*60)
-        print("🎯 BRAND ALIGNMENT RESULT (Good Content):")
-        print("="*60)
-        print(result1)
-        print("="*60)
+        if not expected_keywords:
+            return 75.0  # Neutral if no keywords defined
         
-        # Test bad content
-        print("\n\n" + "="*60)
-        print("TEST 2: POOR BRAND ALIGNMENT")
-        print("="*60)
+        # Count matches
+        matches = sum(1 for keyword in expected_keywords if keyword in content_lower)
         
-        task2 = Task(
-            description=f"""Analyze this content for brand alignment using semantic embeddings:
-            
-            CONTENT TO ANALYZE:
-            {bad_content}
-            
-            Brand: EcoStep
-            Brand Values: Sustainability, authenticity, inspiration, empowerment, transparency
-            Brand Voice: Inspiring, genuine, eco-conscious, positive, honest
-            
-            Use the brand alignment tool to check semantic similarity.
-            Provide your brand alignment assessment with score and recommendations.""",
-            
-            expected_output="Brand alignment score, embedding analysis, and approval decision",
-            agent=brand_guardian
-        )
+        # Score based on percentage of keywords found
+        score = (matches / len(set(expected_keywords))) * 100
+
+        # Bonus for emoji (playful/casual tones)
+        if tone_lower in ["playful", "casual", "friendly"]:
+            emoji_pattern = r'[\U0001F600-\U0001F64F\U0001F300-\U0001F5FF\U0001F680-\U0001F6FF\U0001F1E0-\U0001F1FF]'
+            if re.search(emoji_pattern, content_lower):
+                score += 10
         
-        crew2 = Crew(
-            agents=[brand_guardian],
-            tasks=[task2],
-            verbose=True
-        )
+        return min(100, score + 50)  # Add base score
+
+    def _check_voice_attributes(self, content_lower: str, voice_attrs: List[str]) -> float:
+        """Check if content matches voice attributes."""
+        if not voice_attrs:
+            return 75.0
         
-        result2 = crew2.kickoff()
+        total_score = 0
+        for attr in voice_attrs:
+            attr_lower = attr.lower()
+
+            # Get keywords for this attribute
+            keywords = self.TONE_KEYWORDS.get(attr_lower, [attr_lower])
+
+            # Check presence
+            matches = sum(1 for kw in keywords if kw in content_lower)
+            attr_score = min(100, (matches / len(keywords)) * 100 + 60)
+            total_score += attr_score
         
-        print("\n" + "="*60)
-        print("🎯 BRAND ALIGNMENT RESULT (Bad Content):")
-        print("="*60)
-        print(result2)
-        print("="*60)
+        return total_score / len(voice_attrs) if voice_attrs else 75.0
+
+    def _check_forbidden_phrases(self, content_lower: str) -> List[str]:
+        """Check for forbidden/spammy phrases."""
+        issues = []
+        for phrase in self.FORBIDDEN_PHRASES:
+            if phrase.lower() in content_lower:
+                issues.append(phrase)
+        return issues
+
+    def format_report(self, result: Dict) -> str:
+        """Format brand check result as readable text."""
+        report = f"""Brand Score: {result['brand_score']}/100
+Alignment Level: {result['alignment_level']}
+
+SEMANTIC ANALYSIS:
+• Values Alignment: {result['values_score']}/100
+• Voice Match: {result['voice_score']}/100
+• Tone Consistency: {result['tone_score']}/100
+
+"""
+        if result['issues']:
+            report += "ISSUES DETECTED:\n"
+            for issue in result['issues']:
+                report += f"• {issue}\n"
+            report += "\n"
         
-        print("\n✅ All Brand Guardian tests completed!")
+        if result['recommendations']:
+            report += "RECOMMENDATIONS:\n"
+            for rec in result['recommendations']:
+                report += f"• {rec}\n"
+            report += "\n"
         
-        # Validate format
-        print("\n📋 Format Validation:")
-        if "Brand Score:" in str(result1) or "BRAND ALIGNMENT" in str(result1):
-            print("✅ Structured brand check format detected!")
-        else:
-            print("⚠️  Agent returned feedback but may need format guidance")
+        report += f"APPROVAL: {'APPROVED' if result['approved'] else 'NEEDS REVISION'}"
         
-    except Exception as e:
-        print(f"❌ Error: {e}")
-        import traceback
-        traceback.print_exc()
+        return report
