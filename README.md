@@ -34,8 +34,6 @@ cp .env.example .env
 python app_simple.py
 ```
 
-**Access at**: http://127.0.0.1:7860
-
 ---
 
 ## ✨ Key Features
@@ -138,8 +136,6 @@ cp .env.example .env
 ```bash
 python app_simple.py
 ```
-
-Open browser to `http://127.0.0.1:7860`
 
 ---
 
