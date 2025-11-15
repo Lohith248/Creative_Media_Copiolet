@@ -26,7 +26,8 @@ def run_campaign_pipeline(
     brand_voice: str,
     brand_values: str,
     platform: str,
-    include_research: bool
+    include_research: bool,
+    iterations: int
 ):
     """
     Run the multi-agent pipeline with real-time status updates.
@@ -80,7 +81,7 @@ def run_campaign_pipeline(
         )
         
         # Create crew
-        crew = CreativeMediaCrew(max_iterations=1)
+        crew = CreativeMediaCrew(max_iterations=iterations)
         
         # Update status callback
         def update_status(agent_name, state, message, output):
@@ -244,6 +245,15 @@ with gr.Blocks(
                 value=False
             )
             
+            iterations_input = gr.Slider(
+                label="Number of Improvement Iterations",
+                minimum=1,
+                maximum=5,
+                step=1,
+                value=1,
+                info="Sets the number of times agents will review and improve the content."
+            )
+
             with gr.Row():
                 generate_btn = gr.Button("🚀 Generate Campaign", variant="primary", scale=2)
                 example_btn = gr.Button("✨ Quick Start Example", variant="secondary", scale=1)
@@ -296,7 +306,8 @@ Or try 'Quick Start Example' for a demo.""",
             voice_input,
             values_input,
             platform_input,
-            research_input
+            research_input,
+            iterations_input
         ],
         outputs=[
             agent_status_display,
@@ -308,14 +319,15 @@ Or try 'Quick Start Example' for a demo.""",
     
     # Quick Start Example button
     example_btn.click(
-        fn=lambda: ("EcoStep Sneakers", 
-                   "Launch new sustainable product line", 
+        fn=lambda: ("EcoStep Sneakers",
+                   "Launch new sustainable product line",
                    "Environmentally conscious millennials 25-35",
                    "inspiring",
                    "sustainability, innovation, quality",
                    "Instagram",
-                   False),
-        outputs=[product_input, goal_input, audience_input, voice_input, values_input, platform_input, research_input]
+                   False,
+                   1),
+        outputs=[product_input, goal_input, audience_input, voice_input, values_input, platform_input, research_input, iterations_input]
     )
     
     # Download buttons
