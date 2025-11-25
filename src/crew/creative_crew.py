@@ -18,7 +18,7 @@ load_dotenv()
 
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from src.utils.safe_types import (
+from utils.safe_types import (
     safe_str, normalize_agent_output
 )
 
@@ -69,7 +69,7 @@ from agents.content_writer import create_content_writer
 from agents.designer import create_designer
 from agents.reviewer import create_reviewer
 from agents.compliance_agent import create_compliance_agent
-from agents.local_brand_guardian import LocalBrandGuardian
+from agents.brand_guardian import BrandGuardian
 from agents.publishing_agent import PublishingAgent
 from models.campaign_brief import CampaignBrief, PLATFORM_PRESETS, BRAND_PRESETS
 
@@ -98,7 +98,7 @@ class CreativeMediaCrew:
         self.designer = None
         self.reviewer = None
         self.compliance = None
-        self.local_brand_guardian = None
+        self.brand_guardian = None
         self.publishing_agent = PublishingAgent()
         print("✅ Crew ready!\n")
         
@@ -138,13 +138,13 @@ class CreativeMediaCrew:
             self.compliance = create_compliance_agent()
         return self.compliance
     
-    def _get_local_brand_guardian(self):
+    def _get_brand_guardian(self):
         """Lazy load LOCAL brand guardian (uses global embedding model)."""
-        if self.local_brand_guardian is None:
-            print("🛡️ Loading Local Brand Guardian (zero-token)...")
+        if self.brand_guardian is None:
+            print("🛡️ Loading Brand Guardian (zero-token)...")
             embedding_model = get_embedding_model()  # Use global model
-            self.local_brand_guardian = LocalBrandGuardian(embedding_model)
-        return self.local_brand_guardian
+            self.brand_guardian = BrandGuardian(embedding_model)
+        return self.brand_guardian
     
     def create_campaign(self, brief: CampaignBrief, include_research: bool = False, progress_callback: Optional[Callable] = None) -> dict:
         """
@@ -707,12 +707,12 @@ Score <70: REJECTED""",
                 "output": safe_str(compliance_result)[:200] + "..."
             })
             
-            # STEP 5: Local Brand Guardian (ZERO-TOKEN - uses embeddings only)
-            print("🛡️ STEP 5: Local Brand Guardian (Zero-Token Embeddings)")
+            # STEP 5: Brand Guardian (ZERO-TOKEN - uses embeddings only)
+            print("🛡️ STEP 5: Brand Guardian (Zero-Token Embeddings)")
             print("-" * 70)
             
-            local_guardian = self._get_local_brand_guardian()
-            brand_result = local_guardian.check_brand_alignment(
+            guardian = self._get_brand_guardian()
+            brand_result = guardian.check_brand_alignment(
                 content=content,
                 brand_voice_attributes=brief.brand.voice_attributes,
                 brand_values=brief.brand.values,
@@ -723,7 +723,7 @@ Score <70: REJECTED""",
             print(f"✅ Brand check complete! Score: {brand_score}/100\n")
             
             iteration_data["agents"].append({
-                "name": "LocalBrandGuardian",
+                "name": "BrandGuardian",
                 "score": brand_score,
                 "output": f"Alignment: {brand_result['alignment_level']}, Score: {brand_score}/100"
             })
